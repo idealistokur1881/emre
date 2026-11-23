@@ -1,0 +1,3632 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Yerdeki Kağıt Kuşlar</title>
+<meta name="description" content="50 saniyelik sözsüz animasyon — duyulmak ve gerçekten dinlenmek üzerine. SVG + Canvas fizik + GSAP 3 + Web Audio.">
+<style>
+:root {
+  --cinema: #05070B;
+  --ui: #EEF2F8;
+  --ui-dim: rgba(238, 242, 248, 0.6);
+  --ember: #FF6B2B;
+  --ember-soft: #FFB347;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--cinema); overflow: hidden; color: var(--ui); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { display: flex; align-items: center; justify-content: center; }
+
+#stage-container {
+  position: relative;
+  aspect-ratio: 9 / 16;
+  height: 96vh;
+  max-height: 96vh;
+  max-width: calc(96vh * 9 / 16);
+  overflow: hidden;
+  background: #000;
+  border-radius: 6px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.65);
+}
+@media (max-aspect-ratio: 9/16) {
+  #stage-container { width: 100vw; height: auto; max-width: 100vw; max-height: 100vh; border-radius: 0; }
+}
+#scene, #fx-canvas, #grain-overlay, #fade-black { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#fx-canvas, #grain-overlay, #fade-black { pointer-events: none; }
+#grain-overlay { mix-blend-mode: overlay; opacity: 0.2; will-change: transform; overflow: hidden; }
+#grain-overlay svg { position: absolute; left: -3%; top: -3%; width: 106%; height: 106%; }
+#fade-black { background: #000; opacity: 0; }
+
+/* ---------- açılış perdesi ---------- */
+#curtain {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 46%, rgba(10, 18, 30, 0.35), rgba(3, 5, 9, 0.82));
+  transition: opacity 0.4s ease; z-index: 5;
+}
+#curtain.gone { opacity: 0; pointer-events: none; }
+#curtain-play {
+  position: relative; width: 168px; height: 168px; border-radius: 50%; border: 0; cursor: pointer;
+  background: radial-gradient(circle, rgba(255, 140, 60, 0.22), rgba(255, 107, 43, 0) 70%);
+  display: grid; place-items: center; transition: transform 0.3s ease, opacity 0.3s ease;
+}
+#curtain-play:disabled { cursor: progress; opacity: 0.55; }
+#curtain-play:not(:disabled):hover { transform: scale(1.06); }
+#curtain-play svg { width: 150px; height: 150px; overflow: visible; }
+#curtain .ring { fill: none; stroke: rgba(255, 179, 71, 0.55); stroke-width: 1.5; stroke-dasharray: 6 10; transform-origin: 75px 75px; animation: spin 6s linear infinite; }
+#curtain.ready .ring { stroke-dasharray: none; animation: none; stroke: rgba(255, 179, 71, 0.4); }
+#curtain .bird { filter: drop-shadow(0 0 10px rgba(255, 140, 60, 0.9)) drop-shadow(0 0 26px rgba(255, 107, 43, 0.5)); animation: hover 3.2s ease-in-out infinite; transform-origin: 75px 70px; }
+#curtain .tri { fill: rgba(255, 244, 214, 0.92); }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes hover { 50% { transform: translateY(-4px); } }
+
+/* ---------- kontrol çubuğu ---------- */
+#controls {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 4;
+  display: flex; align-items: center; gap: 10px; padding: 14px 16px 16px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0));
+  opacity: 0.12; transition: opacity 0.25s ease;
+}
+#controls:hover, #controls:focus-within { opacity: 1; }
+#controls button {
+  width: 34px; height: 34px; flex: 0 0 34px; border: 0; border-radius: 50%; cursor: pointer;
+  background: rgba(255, 255, 255, 0.1); color: var(--ui); display: grid; place-items: center;
+}
+#controls button:hover { background: rgba(255, 255, 255, 0.2); }
+#controls button svg { width: 16px; height: 16px; fill: currentColor; }
+#btn-play .i-pause { display: none; }
+#btn-play[data-state="pause"] .i-play { display: none; }
+#btn-play[data-state="pause"] .i-pause { display: block; }
+#time { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ui-dim); min-width: 88px; letter-spacing: 0.02em; }
+#scrubber {
+  --p: 0%;
+  flex: 1; min-width: 0; height: 18px; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
+}
+#scrubber::-webkit-slider-runnable-track { height: 3px; border-radius: 3px; background: linear-gradient(to right, var(--ember) var(--p), rgba(255, 255, 255, 0.22) var(--p)); }
+#scrubber::-moz-range-track { height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.22); }
+#scrubber::-moz-range-progress { height: 3px; border-radius: 3px; background: var(--ember); }
+#scrubber::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -4.5px; border-radius: 50%; background: var(--ember-soft); box-shadow: 0 0 10px rgba(255, 107, 43, 0.8); }
+#scrubber::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--ember-soft); }
+
+/* H tuşu: temiz ekran kaydı */
+body.clean #controls, body.clean #curtain { display: none !important; }
+
+/* ?capture: piksel-kesin 1080×1920 */
+body.capture { display: block; }
+body.capture #stage-container { width: 1080px; height: 1920px; max-width: none; max-height: none; border-radius: 0; box-shadow: none; aspect-ratio: auto; }
+body.capture #curtain, body.capture #controls { display: none; }
+
+</style>
+</head>
+<body>
+<div id="stage-container">
+<svg id="scene" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <!-- ===== Dinamik gökyüzü / ortam gradyanı ===== -->
+    <linearGradient id="bg-grad" gradientUnits="userSpaceOnUse" x1="0" y1="-1700" x2="0" y2="1440">
+      <stop id="bg-stop-1" offset="0" stop-color="#060B14"/>
+      <stop id="bg-stop-2" offset="0.56" stop-color="#0E1B2E"/>
+      <stop id="bg-stop-3" offset="1" stop-color="#1A2D45"/>
+    </linearGradient>
+
+    <!-- ===== Görsel stil anayasası: filtreler ===== -->
+    <filter id="paper-grain" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="11" stitchTiles="stitch" result="n"/>
+      <feColorMatrix in="n" type="saturate" values="0" result="g"/>
+      <feComponentTransfer in="g">
+        <feFuncR type="linear" slope="1.6" intercept="-0.3"/>
+        <feFuncG type="linear" slope="1.6" intercept="-0.3"/>
+        <feFuncB type="linear" slope="1.6" intercept="-0.3"/>
+        <feFuncA type="linear" slope="0" intercept="1"/>
+      </feComponentTransfer>
+    </filter>
+    <filter id="paper-tex" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="n"/>
+      <feColorMatrix in="n" type="saturate" values="0" result="g"/>
+      <feComposite in="g" in2="SourceGraphic" operator="in" result="gm"/>
+      <feComposite in="SourceGraphic" in2="gm" operator="arithmetic" k1="0" k2="1" k3="0.2" k4="-0.1"/>
+    </filter>
+    <filter id="glow-ember" x="-120%" y="-120%" width="340%" height="340%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5" result="b1"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16" result="b2"/>
+      <feFlood flood-color="#FF6B2B" flood-opacity="0.95" result="c2"/>
+      <feComposite in="c2" in2="b2" operator="in" result="g2"/>
+      <feFlood flood-color="#FFB347" flood-opacity="0.9" result="c1"/>
+      <feComposite in="c1" in2="b1" operator="in" result="g1"/>
+      <feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-gold" x="-150%" y="-150%" width="400%" height="400%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="b1"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="9" result="b2"/>
+      <feFlood flood-color="#FFD36B" result="c2"/>
+      <feComposite in="c2" in2="b2" operator="in" result="g2"/>
+      <feFlood flood-color="#FFF4D6" result="c1"/>
+      <feComposite in="c1" in2="b1" operator="in" result="g1"/>
+      <feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-neon-cold" x="-60%" y="-60%" width="220%" height="220%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16" result="b"/>
+      <feFlood flood-color="#38E8FF" flood-opacity="0.75" result="c"/>
+      <feComposite in="c" in2="b" operator="in" result="glow"/>
+      <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="soft-shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="soft-blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+
+    <!-- ===== Gradyanlar ===== -->
+    <linearGradient id="coat-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7A3122"/>
+      <stop offset="0.34" stop-color="#AC4B35"/>
+      <stop offset="0.7" stop-color="#C4614A"/>
+      <stop offset="1" stop-color="#9A412E"/>
+    </linearGradient>
+    <linearGradient id="sleeve-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#83382A"/>
+      <stop offset="0.6" stop-color="#B8533B"/>
+      <stop offset="1" stop-color="#9C432F"/>
+    </linearGradient>
+    <radialGradient id="skin-grad" cx="0.42" cy="0.36" r="0.72">
+      <stop offset="0" stop-color="#FAD9BD"/>
+      <stop offset="0.55" stop-color="#EFBB99"/>
+      <stop offset="1" stop-color="#D3957A"/>
+    </radialGradient>
+    <radialGradient id="iris-grad" cx="0.4" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#7A5034"/>
+      <stop offset="0.6" stop-color="#4A2C1C"/>
+      <stop offset="1" stop-color="#22130B"/>
+    </radialGradient>
+    <radialGradient id="tear-grad" cx="0.4" cy="0.6" r="0.7">
+      <stop offset="0" stop-color="#FFFBEA"/>
+      <stop offset="0.45" stop-color="#FFE08A"/>
+      <stop offset="1" stop-color="#F4A261"/>
+    </radialGradient>
+    <radialGradient id="halo-grad" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFC983" stop-opacity="0.95"/>
+      <stop offset="0.35" stop-color="#D9822B" stop-opacity="0.5"/>
+      <stop offset="0.7" stop-color="#D9822B" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#D9822B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ember-halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFD08A" stop-opacity="0.95"/>
+      <stop offset="0.3" stop-color="#FF8A3D" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#FF6B2B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="screen-grad" cx="0.45" cy="0.4" r="0.75">
+      <stop offset="0" stop-color="#C8FBFF"/>
+      <stop offset="0.35" stop-color="#5BEEFF"/>
+      <stop offset="0.8" stop-color="#1694B4"/>
+      <stop offset="1" stop-color="#0B5670"/>
+    </radialGradient>
+    <radialGradient id="screen-cast" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#38E8FF" stop-opacity="0.42"/>
+      <stop offset="0.5" stop-color="#38E8FF" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#38E8FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gear-metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B7C4D6"/>
+      <stop offset="0.35" stop-color="#6E7C92"/>
+      <stop offset="0.65" stop-color="#3A4558"/>
+      <stop offset="1" stop-color="#8794A8"/>
+    </linearGradient>
+    <linearGradient id="gear-dark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5F6C80"/>
+      <stop offset="1" stop-color="#232B38"/>
+    </linearGradient>
+    <linearGradient id="crowd-coat-a" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#151C28"/>
+      <stop offset="0.55" stop-color="#26313F"/>
+      <stop offset="1" stop-color="#3A4A5E"/>
+    </linearGradient>
+    <linearGradient id="crowd-coat-b" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#121924"/>
+      <stop offset="0.55" stop-color="#202B3A"/>
+      <stop offset="1" stop-color="#324155"/>
+    </linearGradient>
+    <linearGradient id="crowd-coat-c" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#181E28"/>
+      <stop offset="0.55" stop-color="#2B3340"/>
+      <stop offset="1" stop-color="#424D5C"/>
+    </linearGradient>
+    <linearGradient id="floor-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#132238"/>
+      <stop offset="0.25" stop-color="#0C1626"/>
+      <stop offset="1" stop-color="#050910"/>
+    </linearGradient>
+    <linearGradient id="floor-warm-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC27A" stop-opacity="0.75"/>
+      <stop offset="0.4" stop-color="#E27A3A" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#5A2A14" stop-opacity="0.1"/>
+    </linearGradient>
+    <linearGradient id="beam-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#DDFBFF" stop-opacity="0.42"/>
+      <stop offset="0.45" stop-color="#7FD9F0" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#38E8FF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ray-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF4D6" stop-opacity="0.75"/>
+      <stop offset="0.5" stop-color="#FFC77D" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#F4A261" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="pillar-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#070C16"/>
+      <stop offset="0.3" stop-color="#16223A"/>
+      <stop offset="0.55" stop-color="#1D2C47"/>
+      <stop offset="1" stop-color="#0A111E"/>
+    </linearGradient>
+    <linearGradient id="pillar-warm" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFB25C" stop-opacity="0"/>
+      <stop offset="0.8" stop-color="#FFB25C" stop-opacity="0.0"/>
+      <stop offset="1" stop-color="#FFD9A0" stop-opacity="0.55"/>
+    </linearGradient>
+    <linearGradient id="mound-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5A6372"/>
+      <stop offset="0.5" stop-color="#3B4352"/>
+      <stop offset="1" stop-color="#1E2430"/>
+    </linearGradient>
+    <linearGradient id="boot-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#A86B3C"/>
+      <stop offset="0.6" stop-color="#7A4A2A"/>
+      <stop offset="1" stop-color="#4E2D18"/>
+    </linearGradient>
+    <linearGradient id="shawl-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E9A24A"/>
+      <stop offset="0.5" stop-color="#D9822B"/>
+      <stop offset="1" stop-color="#9C5A1C"/>
+    </linearGradient>
+    <linearGradient id="shawl-dark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7A4A1A"/>
+      <stop offset="0.45" stop-color="#5A3512"/>
+      <stop offset="1" stop-color="#26160A"/>
+    </linearGradient>
+    <radialGradient id="palm-hollow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5E3424" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#5E3424" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lskin-grad" cx="0.35" cy="0.4" r="0.75">
+      <stop offset="0" stop-color="#E7B08A"/>
+      <stop offset="0.6" stop-color="#CC8E68"/>
+      <stop offset="1" stop-color="#9E6446"/>
+    </radialGradient>
+    <linearGradient id="lshadow-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#060B14" stop-opacity="0.75"/>
+      <stop offset="0.5" stop-color="#060B14" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#03060C" stop-opacity="1"/>
+    </linearGradient>
+    <radialGradient id="vignette-grad" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0.55" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.55"/>
+    </radialGradient>
+    <linearGradient id="floor-vignette" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#03060B" stop-opacity="0"/>
+      <stop offset="1" stop-color="#03060B" stop-opacity="0.75"/>
+    </linearGradient>
+    <radialGradient id="sun-grad" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFBEA" stop-opacity="1"/>
+      <stop offset="0.25" stop-color="#FFE3A8" stop-opacity="0.75"/>
+      <stop offset="0.6" stop-color="#F4A261" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#F4A261" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="haze-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0E1B2E" stop-opacity="0"/>
+      <stop offset="0.45" stop-color="#0E1B2E" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#0E1B2E" stop-opacity="0.2"/>
+    </linearGradient>
+    <!-- makro sahne -->
+    <radialGradient id="macro-bg" gradientUnits="userSpaceOnUse" cx="540" cy="1050" r="1300">
+      <stop offset="0" stop-color="#3B2414"/>
+      <stop offset="0.45" stop-color="#1B100A"/>
+      <stop offset="1" stop-color="#070403"/>
+    </radialGradient>
+    <radialGradient id="bokeh-grad" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFC47A" stop-opacity="0.9"/>
+      <stop offset="0.65" stop-color="#E0893A" stop-opacity="0.45"/>
+      <stop offset="0.9" stop-color="#E0893A" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#E0893A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mskin-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E2A884"/>
+      <stop offset="0.5" stop-color="#C88A66"/>
+      <stop offset="1" stop-color="#9A6247"/>
+    </linearGradient>
+    <linearGradient id="mskin-dark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#A86B4E"/>
+      <stop offset="1" stop-color="#6E412F"/>
+    </linearGradient>
+    <linearGradient id="knit-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2A1D16"/>
+      <stop offset="0.5" stop-color="#4A3426"/>
+      <stop offset="1" stop-color="#2A1D16"/>
+    </linearGradient>
+    <linearGradient id="breath-cone" gradientUnits="userSpaceOnUse" x1="540" y1="-150" x2="540" y2="1260">
+      <stop offset="0" stop-color="#FFF4D6" stop-opacity="0.7"/>
+      <stop offset="0.55" stop-color="#FFE08A" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFC24A" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="macro-warm-light" gradientUnits="userSpaceOnUse" cx="420" cy="300" r="1200">
+      <stop offset="0" stop-color="#FFB25C" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFB25C" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- şekiller -->
+    <path id="pc-shape" d="M-46 -268 C-62 -264 -68 -250 -70 -232 L-84 -106 C-56 -94 56 -94 84 -106 L70 -232 C68 -250 62 -264 46 -268 C30 -276 -30 -276 -46 -268 Z"/>
+    <path id="pa-shape" d="M-44 -266 C-60 -266 -72 -254 -74 -236 L-82 -160 C-78 -152 -64 -150 -58 -156 L-50 -226 C-48 -244 -46 -256 -44 -266 Z"/>
+    <clipPath id="clip-eyes">
+      <ellipse cx="-21" cy="-337" rx="12.5" ry="14.5"/>
+      <ellipse cx="21" cy="-337" rx="12.5" ry="14.5"/>
+    </clipPath>
+    <pattern id="stubble" width="7" height="7" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.1" fill="#EEE6DA" opacity="0.7"/>
+      <circle cx="5.5" cy="5" r="0.9" fill="#EEE6DA" opacity="0.55"/>
+    </pattern>
+  </defs>
+
+  <!-- ==================================================================== -->
+  <g id="camera-rig" style="transform-origin: 540px 960px;">
+
+    <!-- (1) ARKA PLAN -->
+    <g id="layer-backdrop">
+      <rect x="-1500" y="-2800" width="4080" height="5600" fill="url(#bg-grad)"/>
+      <circle id="sky-sun" cx="540" cy="-760" r="900" fill="url(#sun-grad)" opacity="0"/>
+      <g id="bg-city"></g>
+      <g id="warm-god-rays" opacity="0" style="mix-blend-mode:screen"></g>
+      <g id="cold-ceiling"></g>
+      <g id="bg-pillars"></g>
+      <g id="cold-beams" style="mix-blend-mode:screen"></g>
+      <g id="floor">
+        <rect x="-1500" y="1396" width="4080" height="1500" fill="url(#floor-grad)"/>
+        <rect id="floor-horizon" x="-1500" y="1394" width="4080" height="5" fill="#5C8FB0" opacity="0.22"/>
+        <g id="floor-lines" stroke="#3A5D80" stroke-width="1.5" opacity="0.16"></g>
+        <g id="floor-reflections" style="mix-blend-mode:screen"></g>
+        <rect id="floor-warm" x="-1500" y="1396" width="4080" height="1500" fill="url(#floor-warm-grad)" opacity="0"/>
+      </g>
+      <g id="far-crowd"></g>
+    </g>
+
+    <!-- (2) KALABALIK -->
+    <g id="layer-crowd-back"></g>
+    <rect id="crowd-haze" x="-1500" y="520" width="4080" height="980" fill="url(#haze-grad)"/>
+    <g id="layer-crowd-front"></g>
+
+    <!-- (3) KAHRAMAN -->
+    <g id="layer-protagonist">
+      <g id="char-protagonist" transform="translate(540 1580)">
+        <ellipse cx="0" cy="3" rx="86" ry="14" fill="#01040A" opacity="0.6"/>
+        <g id="protag-legs">
+          <path d="M-36 -118 C-36 -100 -34 -60 -32 -24 L-12 -24 C-12 -60 -10 -100 -8 -118 Z" fill="#161C29"/>
+          <path d="M8 -118 C10 -100 12 -60 12 -24 L32 -24 C34 -60 36 -100 36 -118 Z" fill="#1D2434"/>
+          <path d="M-34 -28 L-10 -28 C-8 -16 -6 -8 -8 -2 C-22 2 -40 2 -50 -1 C-54 -4 -50 -11 -42 -15 C-38 -18 -35 -22 -34 -28 Z" fill="#3E2721"/>
+          <path d="M10 -28 L34 -28 C35 -22 38 -18 42 -15 C50 -11 54 -4 50 -1 C40 2 22 2 8 -2 C6 -8 8 -16 10 -28 Z" fill="#4B3028"/>
+          <path d="M-48 -3 C-36 0 -20 0 -9 -3 M9 -3 C20 0 36 0 48 -3" stroke="#22140F" stroke-width="3" fill="none" stroke-linecap="round"/>
+        </g>
+        <g id="protag-body">
+          <use href="#pc-shape" fill="url(#coat-grad)"/>
+          <path d="M-46 -268 C-62 -264 -68 -250 -70 -232 L-84 -106 C-70 -100 -54 -97 -40 -96 L-30 -236 C-32 -254 -38 -264 -46 -268 Z" fill="#4A1A10" opacity="0.42"/>
+          <path d="M-84 -106 C-56 -94 56 -94 84 -106 L82 -118 C50 -108 -50 -108 -82 -118 Z" fill="#000" opacity="0.18"/>
+          <path d="M50 -266 C62 -262 68 -250 70 -232 L84 -106" stroke="#F2A07A" stroke-width="3" fill="none" opacity="0.55" stroke-linecap="round"/>
+          <path d="M2 -246 C4 -200 4 -150 6 -98" stroke="#6E2A1E" stroke-width="2.5" fill="none"/>
+          <circle cx="-8" cy="-222" r="4" fill="#4A1A12"/><circle cx="-7" cy="-188" r="4" fill="#4A1A12"/><circle cx="-6" cy="-154" r="4" fill="#4A1A12"/>
+          <circle cx="-9" cy="-223.5" r="1.3" fill="#E0876A"/><circle cx="-8" cy="-189.5" r="1.3" fill="#E0876A"/><circle cx="-7" cy="-155.5" r="1.3" fill="#E0876A"/>
+          <path d="M-60 -150 L-26 -152 M26 -152 L60 -150" stroke="#6E2A1E" stroke-width="3" stroke-linecap="round"/>
+          <path d="M-14 -275 L0 -246 L14 -275 Z" fill="#EADBC6"/>
+          <path d="M-12 -298 L12 -298 L13 -272 C6 -266 -6 -266 -13 -272 Z" fill="#E2AA88"/>
+          <path d="M-36 -274 C-26 -263 -14 -251 -4 -238 L-6 -272 Z" fill="#8E3A28"/>
+          <path d="M36 -274 C26 -263 14 -251 4 -238 L6 -272 Z" fill="#A4452F"/>
+          <g id="protag-arm-l">
+            <path d="M44 -266 C60 -266 72 -254 74 -236 L82 -160 C78 -152 64 -150 58 -156 L50 -226 C48 -244 46 -256 44 -266 Z" fill="#A9472F"/>
+            <path d="M58 -158 C64 -150 78 -152 82 -160 L83 -150 C76 -144 64 -144 58 -150 Z" fill="#7E3324"/>
+            <ellipse cx="71" cy="-138" rx="11" ry="13" fill="#EDB896"/>
+            <path d="M64 -134 C67 -128 74 -128 78 -132" stroke="#C98468" stroke-width="2" fill="none"/>
+            <path class="tint-part" d="M44 -266 C60 -266 72 -254 74 -236 L82 -160 C78 -152 64 -150 58 -156 L50 -226 C48 -244 46 -256 44 -266 Z" fill="#284A73" opacity="0"/>
+          </g>
+          <g id="protag-cold-tint" opacity="0">
+            <use href="#pc-shape" fill="#284A73"/>
+          </g>
+          <g id="protag-warm-light" opacity="0" style="mix-blend-mode:screen">
+            <use href="#pc-shape" fill="#8A3E10"/>
+            <path d="M-70 -232 L-84 -106" stroke="#FFD08A" stroke-width="5" opacity="0.6" stroke-linecap="round"/>
+          </g>
+
+          <!-- BAŞ -->
+          <g id="protag-head">
+            <path id="protag-hair-back" d="M-64 -318 C-82 -352 -72 -398 -42 -414 C-18 -428 22 -428 46 -412 C74 -396 82 -352 64 -316 C70 -300 62 -286 50 -290 C44 -300 -44 -300 -50 -290 C-62 -286 -70 -300 -64 -318 Z" fill="#26160F"/>
+            <g id="protag-ears">
+              <ellipse cx="-53" cy="-332" rx="9" ry="13" fill="#DFA27F"/>
+              <ellipse cx="53" cy="-332" rx="9" ry="13" fill="#DFA27F"/>
+            </g>
+            <ellipse id="protag-face" cx="0" cy="-334" rx="53" ry="57" fill="url(#skin-grad)"/>
+            <path d="M-46 -312 C-40 -284 -20 -278 0 -277 C20 -278 40 -284 46 -312 C38 -292 20 -284 0 -284 C-20 -284 -38 -292 -46 -312 Z" fill="#C47E62" opacity="0.32"/>
+            <g id="protag-features">
+              <ellipse cx="-31" cy="-311" rx="12" ry="7" fill="#E98A78" opacity="0.38"/>
+              <ellipse cx="31" cy="-311" rx="12" ry="7" fill="#E98A78" opacity="0.38"/>
+              <g id="protag-eyes">
+                <ellipse cx="-21" cy="-337" rx="12.5" ry="14.5" fill="#FBF6EF"/>
+                <ellipse cx="21" cy="-337" rx="12.5" ry="14.5" fill="#FBF6EF"/>
+                <g clip-path="url(#clip-eyes)">
+                  <g id="protag-pupils">
+                    <circle cx="-21" cy="-335" r="9.6" fill="url(#iris-grad)"/>
+                    <circle cx="21" cy="-335" r="9.6" fill="url(#iris-grad)"/>
+                    <circle cx="-21" cy="-335" r="5.2" fill="#0D0805"/>
+                    <circle cx="21" cy="-335" r="5.2" fill="#0D0805"/>
+                    <circle cx="-24.5" cy="-339" r="3.1" fill="#FFFFFF"/>
+                    <circle cx="17.5" cy="-339" r="3.1" fill="#FFFFFF"/>
+                    <circle cx="-17.5" cy="-331" r="1.4" fill="#FFFFFF" opacity="0.85"/>
+                    <circle cx="24.5" cy="-331" r="1.4" fill="#FFFFFF" opacity="0.85"/>
+                    <g id="protag-eye-sparkle" opacity="0">
+                      <path id="sparkle-l" d="M-19 -342 L-17.6 -337.4 L-13 -336 L-17.6 -334.6 L-19 -330 L-20.4 -334.6 L-25 -336 L-20.4 -337.4 Z" fill="#FFE08A" filter="url(#glow-gold)"/>
+                      <path id="sparkle-r" d="M23 -342 L24.4 -337.4 L29 -336 L24.4 -334.6 L23 -330 L21.6 -334.6 L17 -336 L21.6 -337.4 Z" fill="#FFE08A" filter="url(#glow-gold)"/>
+                      <circle cx="-24" cy="-331" r="1.8" fill="#FFF4D6"/>
+                      <circle cx="18" cy="-331" r="1.8" fill="#FFF4D6"/>
+                    </g>
+                  </g>
+                  <g id="protag-eyelids">
+                    <path id="protag-lid-l" d="M-17 -30 L17 -30 L17 0 Q0 6 -17 0 Z" fill="#E8B08F"/>
+                    <path id="protag-lid-r" d="M-17 -30 L17 -30 L17 0 Q0 6 -17 0 Z" fill="#E8B08F"/>
+                    <path id="protag-lowlid-l" d="M-17 30 L17 30 L17 0 Q0 -4 -17 0 Z" fill="#EDB896"/>
+                    <path id="protag-lowlid-r" d="M-17 30 L17 30 L17 0 Q0 -4 -17 0 Z" fill="#EDB896"/>
+                  </g>
+                </g>
+                <path id="protag-lash-l" d="M-14 0 Q0 5 14 0" stroke="#2A1810" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+                <path id="protag-lash-r" d="M-14 0 Q0 5 14 0" stroke="#2A1810" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+                <path d="M-31 -321 Q-21 -317 -11 -321 M11 -321 Q21 -317 31 -321" stroke="#C98468" stroke-width="1.4" fill="none" opacity="0.6"/>
+              </g>
+              <path id="protag-brows-l" d="M-34 -362 Q-22 -368 -9 -364" stroke="#2A1810" stroke-width="5.2" fill="none" stroke-linecap="round"/>
+              <path id="protag-brows-r" d="M34 -362 Q22 -368 9 -364" stroke="#2A1810" stroke-width="5.2" fill="none" stroke-linecap="round"/>
+              <path id="protag-nose" d="M2 -327 C6 -319 6 -313 0 -310" stroke="#C57E62" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+              <path id="protag-mouth" d="M-14 -296 Q0 -294 14 -296 Q0 -292 -14 -296 Z" fill="#5A1F1C" stroke="#8A3A30" stroke-width="2.4" stroke-linejoin="round"/>
+              <g id="protag-tear" opacity="0">
+                <path id="protag-tear-trail" d="M-25 -323 L-25 -323" stroke="#FFE08A" stroke-width="2.6" fill="none" stroke-linecap="round" opacity="0.6"/>
+                <g id="protag-tear-drop" filter="url(#glow-gold)">
+                  <path d="M0 -7 C3 -2 5 1 5 3.5 C5 6.5 2.6 8.5 0 8.5 C-2.6 8.5 -5 6.5 -5 3.5 C-5 1 -3 -2 0 -7 Z" fill="url(#tear-grad)"/>
+                  <circle cx="-1.6" cy="3" r="1.4" fill="#FFFFFF" opacity="0.9"/>
+                </g>
+              </g>
+            </g>
+            <path id="protag-hair-front" d="M-56 -350 C-54 -394 -18 -408 6 -400 C32 -406 58 -386 58 -348 C50 -364 38 -372 26 -366 C18 -380 -2 -384 -12 -372 C-26 -380 -46 -372 -56 -350 Z" fill="#2F1C15"/>
+            <path d="M-40 -380 C-30 -392 -14 -396 0 -392 M10 -394 C26 -396 42 -386 50 -372" stroke="#5E3D2C" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.8"/>
+            <ellipse class="tint-part tint-face" cx="0" cy="-334" rx="53" ry="57" fill="#2E4E7A" opacity="0" style="mix-blend-mode:multiply"/>
+            <ellipse class="warm-part" cx="10" cy="-334" rx="53" ry="57" fill="#FFB067" opacity="0" style="mix-blend-mode:soft-light"/>
+          </g>
+
+          <g id="protag-arm-r">
+            <use href="#pa-shape" fill="url(#sleeve-grad)"/>
+            <path d="M-58 -158 C-64 -150 -78 -152 -82 -160 L-83 -150 C-76 -144 -64 -144 -58 -150 Z" fill="#7E3324"/>
+            <g id="protag-hand-r">
+              <g id="protag-fingers-r">
+                <path d="M-79 -140 L-86 -118" stroke="#EDB896" stroke-width="6.5" stroke-linecap="round"/>
+                <path d="M-73 -137 L-76 -112" stroke="#EDB896" stroke-width="6.5" stroke-linecap="round"/>
+                <path d="M-66 -137 L-65 -113" stroke="#EDB896" stroke-width="6.5" stroke-linecap="round"/>
+                <path d="M-60 -140 L-55 -119" stroke="#EDB896" stroke-width="6" stroke-linecap="round"/>
+              </g>
+              <ellipse cx="-70" cy="-139" rx="12" ry="11" fill="#EDB896"/>
+              <path d="M-60 -146 L-52 -138" stroke="#E2A784" stroke-width="7" stroke-linecap="round"/>
+            </g>
+            <use class="tint-part" href="#pa-shape" fill="#284A73" opacity="0"/>
+          </g>
+        </g>
+      </g>
+    </g>
+
+    <!-- (4) DİNLEYEN YABANCI -->
+    <g id="layer-listener">
+      <g id="char-listener" transform="translate(930 1665)">
+        <circle id="listener-warm-halo" cx="-40" cy="-250" r="340" fill="url(#halo-grad)" opacity="0.22"/>
+        <ellipse cx="-30" cy="4" rx="150" ry="16" fill="#01040A" opacity="0.55"/>
+        <g id="listener-seat">
+          <path d="M-46 -132 L118 -132 L122 0 L-50 0 Z" fill="#3E2A1F"/>
+          <path d="M-52 -142 L120 -142 L118 -128 L-50 -128 Z" fill="#5E402D"/>
+          <path d="M-48 -90 L120 -90 M-49 -46 L121 -46" stroke="#24170F" stroke-width="3"/>
+          <path d="M-46 -130 L-50 0" stroke="#7A563C" stroke-width="2" opacity="0.6"/>
+          <circle cx="-38" cy="-110" r="2" fill="#1A100A"/><circle cx="-39" cy="-68" r="2" fill="#1A100A"/><circle cx="-40" cy="-24" r="2" fill="#1A100A"/>
+        </g>
+        <g id="listener-legs">
+          <path d="M10 -150 C-20 -160 -50 -166 -64 -160 C-72 -150 -68 -136 -58 -132 C-30 -128 0 -124 20 -122 Z" fill="#2C2622"/>
+          <path d="M-68 -160 C-76 -120 -78 -70 -76 -40 L-54 -40 C-54 -70 -52 -120 -46 -150 Z" fill="#2C2622"/>
+          <path d="M-76 -44 L-52 -44 C-50 -28 -50 -14 -52 -2 L-104 -2 C-110 -6 -106 -16 -94 -22 C-84 -28 -78 -34 -76 -44 Z" fill="#5A3520"/>
+          <path d="M34 -152 C4 -160 -50 -166 -82 -160 C-98 -152 -98 -128 -82 -122 C-50 -118 4 -112 34 -110 Z" fill="#3A332D"/>
+          <path d="M-88 -158 C-98 -118 -102 -72 -100 -40 L-74 -40 C-74 -72 -70 -118 -62 -148 Z" fill="#3A332D"/>
+          <path d="M-62 -150 C-70 -118 -74 -72 -74 -40" stroke="#4E463E" stroke-width="2" fill="none" opacity="0.6"/>
+          <g id="listener-boot">
+            <path d="M-102 -46 L-72 -46 C-68 -30 -66 -16 -68 -3 L-142 -3 C-150 -7 -146 -19 -130 -25 C-116 -31 -104 -37 -102 -46 Z" fill="url(#boot-grad)"/>
+            <path d="M-146 -4 L-66 -4 L-66 3 L-144 3 C-150 3 -150 -2 -146 -4 Z" fill="#1E120A"/>
+            <path d="M-100 -40 L-86 -38 M-104 -32 L-88 -30 M-110 -26 L-92 -23" stroke="#E9C9A0" stroke-width="1.8" opacity="0.7" stroke-linecap="round"/>
+            <path d="M-140 -12 C-128 -18 -112 -22 -104 -30" stroke="#D49A62" stroke-width="2.2" fill="none" opacity="0.55" stroke-linecap="round"/>
+          </g>
+        </g>
+        <g id="listener-upper">
+          <path d="M-40 -330 C-70 -320 -84 -290 -86 -250 C-88 -200 -76 -160 -60 -138 L62 -132 C72 -170 74 -230 66 -280 C60 -316 38 -336 2 -340 C-14 -340 -28 -336 -40 -330 Z" fill="#3A2C24"/>
+          <path id="listener-shawl" d="M-60 -334 C-94 -320 -108 -282 -108 -232 C-108 -196 -100 -168 -86 -156 C-72 -198 -58 -232 -28 -252 C4 -270 44 -268 70 -250 C76 -288 64 -322 30 -340 C2 -352 -32 -348 -60 -334 Z" fill="url(#shawl-grad)"/>
+          <path d="M-90 -290 C-80 -260 -70 -238 -54 -226 M-60 -320 C-40 -300 -6 -290 30 -296 M40 -330 C52 -310 60 -290 64 -268" stroke="#9C5A1C" stroke-width="3" fill="none" opacity="0.6" stroke-linecap="round"/>
+          <path d="M-104 -214 L-108 -196 M-98 -204 L-100 -186 M-92 -196 L-92 -178 M-86 -188 L-84 -172" stroke="#E9A24A" stroke-width="3" stroke-linecap="round"/>
+          <g id="listener-arm">
+            <path d="M-56 -318 C-84 -302 -100 -262 -104 -222 C-106 -200 -100 -186 -88 -180 L-70 -188 C-72 -222 -66 -262 -44 -292 Z" fill="#33271F"/>
+            <path d="M-104 -196 C-96 -184 -82 -182 -72 -190" stroke="#24190F" stroke-width="5" fill="none" stroke-linecap="round"/>
+            <ellipse id="listener-hand" cx="-94" cy="-174" rx="21" ry="15" fill="#C98B67"/>
+            <path d="M-108 -170 C-100 -164 -88 -164 -80 -168 M-106 -178 C-98 -174 -86 -174 -78 -178" stroke="#8E5A40" stroke-width="1.6" fill="none" opacity="0.7"/>
+          </g>
+          <g id="listener-hands-up" opacity="0">
+            <path d="M-50 -310 C-80 -300 -100 -290 -112 -330 C-120 -356 -116 -380 -104 -392 L-88 -384 C-94 -360 -92 -340 -70 -330 Z" fill="#33271F"/>
+            <ellipse cx="-100" cy="-400" rx="16" ry="22" fill="#C98B67" transform="rotate(-18 -100 -400)"/>
+            <path d="M-112 -414 L-118 -436 M-104 -418 L-106 -442 M-95 -418 L-94 -440 M-87 -412 L-82 -432" stroke="#C98B67" stroke-width="7" stroke-linecap="round"/>
+            <path d="M10 -312 C-14 -300 -34 -296 -44 -336 C-50 -360 -46 -384 -36 -396 L-20 -388 C-24 -364 -22 -344 -4 -334 Z" fill="#2C211A"/>
+            <ellipse cx="-30" cy="-404" rx="15" ry="21" fill="#B97B5A" transform="rotate(10 -30 -404)"/>
+            <path d="M-40 -418 L-44 -440 M-32 -422 L-32 -446 M-24 -420 L-20 -442 M-16 -414 L-10 -432" stroke="#B97B5A" stroke-width="7" stroke-linecap="round"/>
+          </g>
+          <path d="M-38 -352 L-8 -352 L-6 -326 L-36 -322 Z" fill="#B97D5C"/>
+          <g id="listener-head">
+            <path d="M-4 -428 C26 -420 34 -392 30 -362 C28 -346 18 -336 6 -332 L-12 -346 Z" fill="#BDB8B0"/>
+            <path id="listener-face" d="M-14 -434 C-46 -438 -72 -416 -76 -386 C-78 -374 -84 -366 -82 -358 C-80 -352 -74 -352 -74 -346 C-72 -330 -60 -318 -42 -316 C-22 -314 -6 -324 2 -340 C10 -360 12 -402 -14 -434 Z" fill="url(#lskin-grad)"/>
+            <path d="M-4 -390 C8 -394 12 -376 4 -366 C0 -362 -6 -364 -6 -368 Z" fill="#B27556"/>
+            <path d="M-74 -344 C-68 -322 -48 -312 -28 -316 C-10 -322 0 -336 2 -352 C-8 -332 -24 -324 -40 -324 C-56 -324 -68 -332 -74 -344 Z" fill="url(#stubble)"/>
+            <path d="M-76 -347 C-68 -342 -56 -342 -46 -347 C-42 -341 -48 -335 -60 -335 C-70 -335 -76 -341 -76 -347 Z" fill="#DDD6CB"/>
+            <path id="listener-smile" d="M-70 -333 Q-60 -331 -50 -333" stroke="#6E3A2A" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+            <path d="M-72 -380 C-80 -368 -84 -358 -78 -354 C-74 -352 -68 -354 -66 -356" stroke="#8E5A40" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+            <path d="M-62 -360 C-66 -350 -64 -340 -58 -334" stroke="#9A6548" stroke-width="1.8" fill="none" opacity="0.6"/>
+            <g id="listener-eyes">
+              <path id="listener-eye-lid" d="M-62 -390 Q-52 -394 -42 -390" stroke="#3A2218" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+              <ellipse id="listener-iris" cx="-52" cy="-387" rx="3.6" ry="2.6" fill="#2A1810"/>
+              <path d="M-38 -394 L-30 -398 M-37 -388 L-28 -388 M-38 -382 L-30 -378" stroke="#8E5A40" stroke-width="1.5" stroke-linecap="round" opacity="0.75"/>
+              <path d="M-60 -382 Q-52 -379 -44 -382" stroke="#9A6548" stroke-width="1.4" fill="none" opacity="0.6"/>
+            </g>
+            <path id="listener-brow" d="M-66 -400 Q-54 -408 -40 -402" stroke="#E8E2D8" stroke-width="5" fill="none" stroke-linecap="round"/>
+            <path d="M-60 -414 Q-44 -418 -28 -414 M-58 -422 Q-44 -426 -30 -422" stroke="#A86F50" stroke-width="1.4" fill="none" opacity="0.55"/>
+            <path d="M-80 -404 C-82 -440 -42 -458 -4 -450 C20 -446 34 -428 30 -408 C10 -414 -30 -416 -62 -406 Z" fill="#4E3B2E"/>
+            <path d="M-62 -408 C-82 -406 -98 -400 -100 -394 C-82 -394 -62 -398 -42 -404 Z" fill="#33261C"/>
+            <path d="M-70 -436 C-50 -446 -20 -446 6 -436" stroke="#6B5444" stroke-width="2" fill="none" opacity="0.6"/>
+          </g>
+        </g>
+        <path id="listener-shadow" d="M-190 -480 L170 -480 L170 24 L-190 24 Z" fill="url(#lshadow-grad)" opacity="0.72"/>
+      </g>
+    </g>
+
+    <!-- (5) DİZ BOYU GRİ KUŞ YIĞINI -->
+    <g id="layer-floor-mound">
+      <path id="dead-birds-mound" d="M70 1688 C110 1650 150 1630 190 1618 C230 1596 270 1584 300 1562 C340 1538 380 1526 420 1504 C460 1490 500 1482 540 1480 C580 1482 620 1492 650 1510 C690 1532 720 1556 745 1590 C765 1620 780 1660 790 1688 Z" fill="url(#mound-grad)" opacity="0.95"/>
+    </g>
+
+    <!-- (6) KAHRAMAN ORİGAMİ KUŞ -->
+    <g id="layer-hero-bird">
+      <g id="hero-origami-bird" opacity="0">
+        <circle id="hero-bird-glow" cx="0" cy="-10" r="130" fill="url(#ember-halo)" opacity="0"/>
+        <g id="hero-bird-shape">
+          <g id="hero-bird-wing-l"><polygon/><polygon/></g>
+          <g id="hero-bird-body"><polygon/><polygon/><polygon/><polygon/><polygon/></g>
+          <g id="hero-bird-wing-r"><polygon/><polygon/></g>
+          <g id="hero-bird-cracks-gold" opacity="0" fill="none" stroke="#FFE08A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow-gold)">
+            <polyline/><polyline/><polyline/><polyline/>
+          </g>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <!-- ===== Ekran uzayı: renk derecelendirme + vinyet ===== -->
+  <rect id="grade-cold" x="0" y="0" width="1080" height="1920" fill="#0B2440" opacity="0.18" style="mix-blend-mode:multiply" pointer-events="none"/>
+  <rect id="grade-warm" x="0" y="0" width="1080" height="1920" fill="#FFB25C" opacity="0" style="mix-blend-mode:soft-light" pointer-events="none"/>
+  <rect id="vignette" x="0" y="0" width="1080" height="1920" fill="url(#vignette-grad)" pointer-events="none"/>
+  <rect id="floor-shade" x="0" y="1500" width="1080" height="420" fill="url(#floor-vignette)" pointer-events="none"/>
+
+  <!-- ===== Makro El Sahnesi (28.8–37 sn) ===== -->
+  <g id="macro-hands-scene" opacity="0">
+    <g id="macro-cam">
+      <rect x="-500" y="-1100" width="2080" height="3600" fill="url(#macro-bg)"/>
+      <g id="macro-bokeh"></g>
+      <g id="macro-shawl">
+        <path d="M-300 -140 C100 -40 300 160 540 230 C780 160 980 -40 1380 -140 L1380 2600 L-300 2600 Z" fill="#1F150E"/>
+        <path d="M-300 -160 C80 -90 330 110 450 380 C500 500 520 640 530 800 L400 820 C340 600 160 380 -300 300 Z" fill="url(#shawl-dark)"/>
+        <path d="M1380 -160 C1000 -90 750 110 630 380 C580 500 560 640 550 800 L680 820 C740 600 920 380 1380 300 Z" fill="url(#shawl-dark)"/>
+        <path d="M-60 -40 C140 60 300 240 390 470 M40 120 C200 230 310 380 380 620 M1140 -40 C940 60 780 240 690 470 M1040 120 C880 230 770 380 700 620" stroke="#3E2510" stroke-width="7" fill="none" opacity="0.55" stroke-linecap="round"/>
+        <path d="M-60 -10 C140 90 300 270 390 500 M1140 -10 C940 90 780 270 690 500" stroke="#E9A24A" stroke-width="3" fill="none" opacity="0.25" stroke-linecap="round"/>
+        <path d="M290 -70 C370 110 450 196 540 206 C630 196 710 110 790 -70 Z" fill="url(#shawl-grad)"/>
+        <path d="M330 -40 C400 90 470 160 540 170 C610 160 680 90 750 -40" stroke="#9C5A1C" stroke-width="5" fill="none" opacity="0.5" stroke-linecap="round"/>
+      </g>
+      <g id="macro-face">
+        <path d="M250 -700 C240 -420 300 -200 380 -80 C440 0 500 30 540 32 C580 30 640 0 700 -80 C780 -200 840 -420 830 -700 Z" fill="url(#mskin-grad)"/>
+        <path d="M300 -380 C330 -200 400 -80 470 -20 C500 6 520 16 540 18 C560 16 580 6 610 -20 C680 -80 750 -200 780 -380 C740 -260 680 -140 600 -90 C570 -72 510 -72 480 -90 C400 -140 340 -260 300 -380 Z" fill="url(#stubble)" opacity="0.9"/>
+        <path d="M410 -420 C450 -390 490 -380 540 -380 C590 -380 630 -390 670 -420" stroke="#8E5A40" stroke-width="5" fill="none" opacity="0.55" stroke-linecap="round"/>
+        <path d="M470 -330 C440 -300 420 -280 380 -260 M610 -330 C640 -300 660 -280 700 -260" stroke="#8E5A40" stroke-width="4" fill="none" opacity="0.5" stroke-linecap="round"/>
+        <path d="M430 -250 C470 -270 510 -262 540 -250 C570 -262 610 -270 650 -250 C640 -214 600 -196 540 -200 C480 -196 440 -214 430 -250 Z" fill="#DCD4C8"/>
+        <path id="macro-lips" d="M478 -170 Q540 -186 602 -170 Q540 -140 478 -170 Z" fill="#7A3A2C" stroke="#5A2618" stroke-width="3"/>
+        <path d="M455 -110 C500 -90 580 -90 625 -110" stroke="#8E5A40" stroke-width="3" fill="none" opacity="0.5" stroke-linecap="round"/>
+        <path d="M250 -700 C240 -420 300 -200 380 -80" stroke="#FFC983" stroke-width="10" fill="none" opacity="0.35" stroke-linecap="round"/>
+      </g>
+      <g id="macro-lift">
+        <g id="macro-palm-l"></g>
+        <g id="macro-palm-r"></g>
+        <ellipse id="macro-bird-shadow" cx="540" cy="1440" rx="200" ry="46" fill="#2A140A" opacity="0.45" filter="url(#soft-blur)"/>
+        <g id="macro-bird-wrap">
+          <g id="macro-bird" filter="url(#paper-tex)">
+            <g id="macro-wing-l"></g>
+            <g id="macro-wing-r"></g>
+            <g id="macro-body"></g>
+          </g>
+          <g id="macro-creases" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="2" stroke-linecap="round"></g>
+          <g id="macro-gold-veins" fill="none" stroke="#FFE08A" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow-gold)"></g>
+        </g>
+        <g id="macro-hand-l"></g>
+        <g id="macro-hand-r"></g>
+      </g>
+      <g id="macro-breath-glow" opacity="0" style="mix-blend-mode:screen">
+        <path id="macro-breath-cone" d="M515 -150 L565 -150 L820 1260 L260 1260 Z" fill="url(#breath-cone)"/>
+        <circle id="macro-breath-core" cx="540" cy="1020" r="320" fill="url(#ember-halo)" opacity="0.7"/>
+      </g>
+      <rect x="-500" y="-1100" width="2080" height="3600" fill="url(#macro-warm-light)" style="mix-blend-mode:screen" pointer-events="none"/>
+    </g>
+  </g>
+</svg>
+
+  <canvas id="fx-canvas" width="1080" height="1920"></canvas>
+  <div id="grain-overlay" aria-hidden="true">
+    <svg viewBox="0 0 1080 1920" preserveAspectRatio="none"><rect width="1080" height="1920" filter="url(#paper-grain)"/></svg>
+  </div>
+  <div id="fade-black"></div>
+
+  <div id="curtain">
+    <button id="curtain-play" aria-label="Oynat">
+      <svg viewBox="0 0 150 150" aria-hidden="true">
+        <circle class="ring" cx="75" cy="75" r="70"/>
+        <g class="bird">
+          <polygon points="60,72 38,52 52,78" fill="#FF8A3D"/>
+          <polygon points="50,72 75,64 100,72" fill="#FFB347"/>
+          <polygon points="50,72 100,72 75,82" fill="#E2552A"/>
+          <polygon points="88,70 108,46 96,74" fill="#FF9A4A"/>
+          <polygon points="108,46 118,49 104,53" fill="#FFC56B"/>
+          <polygon points="66,68 78,68 70,28" fill="#FFC062"/>
+          <polygon points="70,69 84,69 76,22" fill="#FF6B2B"/>
+        </g>
+        <polygon class="tri" points="68,96 68,124 92,110"/>
+      </svg>
+    </button>
+  </div>
+
+  <div id="controls">
+    <button id="btn-play" data-state="play" aria-label="Oynat">
+      <svg class="i-play" viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z"/></svg>
+      <svg class="i-pause" viewBox="0 0 16 16"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/></svg>
+    </button>
+    <button id="btn-replay" aria-label="Başa sar">
+      <svg viewBox="0 0 16 16"><path d="M8 2.5a5.5 5.5 0 1 1-5.2 7.3l1.4-.5A4 4 0 1 0 8 4v2L4.8 3.3 8 .5z"/></svg>
+    </button>
+    <span id="time">00:00 / 00:50</span>
+    <input id="scrubber" type="range" min="0" max="50" step="0.01" value="0" aria-label="Zaman çubuğu">
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+/* ==========================================================================
+   Yerdeki Kağıt Kuşlar — yardımcılar (PRNG, easing, renk, kamera matrisi)
+   ========================================================================== */
+'use strict';
+
+const DURATION = 50.0;
+const W = 1080, H = 1920;
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const inv = (a, b, v) => clamp((v - a) / (b - a), 0, 1);
+const smooth = (t) => t * t * (3 - 2 * t);
+const smoother = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+const fract = (v) => v - Math.floor(v);
+const TAU = Math.PI * 2;
+const DEG = Math.PI / 180;
+
+const Ease = {
+  inOut: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
+  out: (t) => 1 - (1 - t) * (1 - t),
+  in: (t) => t * t,
+  outCubic: (t) => 1 - Math.pow(1 - t, 3),
+  inCubic: (t) => t * t * t,
+  inOutCubic: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
+  inOutSine: (t) => -(Math.cos(Math.PI * t) - 1) / 2,
+  outSine: (t) => Math.sin((t * Math.PI) / 2),
+  inSine: (t) => 1 - Math.cos((t * Math.PI) / 2),
+};
+
+function wrap(v, lo, hi) {
+  const span = hi - lo;
+  return lo + ((((v - lo) % span) + span) % span);
+}
+
+function gauss(rng) {
+  let u = 0, v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(TAU * v);
+}
+
+/* ---- renkler ---- */
+function hexRgb(h) {
+  h = h.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+function mixRgb(a, b, t) {
+  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+}
+function rgbStr(c, a) {
+  const r = Math.round(c[0]), g = Math.round(c[1]), b = Math.round(c[2]);
+  return a === undefined ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${a})`;
+}
+function mixHex(a, b, t) {
+  return rgbStr(mixRgb(hexRgb(a), hexRgb(b), t));
+}
+
+/* ---- dünya saati: 27. saniyedeki vakumda dünya yavaşlayıp durur ---- */
+function worldClock(t) {
+  const a = 27.0, b = 28.4, D = b - a;
+  if (t <= a) return t;
+  if (t >= b) return a + D / 2;
+  const u = t - a;
+  return a + u - (u * u) / (2 * D);
+}
+
+/* ---- kamera: bakış noktası (cx,cy), ölçek s, Dutch açı r(°) ---- */
+function camMatrix(c) {
+  const s = c.s * (c.pulse || 1);
+  const r = c.r * DEG;
+  const a = Math.cos(r) * s, b = Math.sin(r) * s;
+  const cx = c.cx + (c.jx || 0), cy = c.cy + (c.jy || 0);
+  return [a, b, -b, a, 540 - (a * cx - b * cy), 960 - (b * cx + a * cy)];
+}
+function invMatrix(m) {
+  const [a, b, c, d, e, f] = m;
+  const det = a * d - b * c;
+  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
+}
+function applyMatrix(m, x, y) {
+  return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+}
+
+/* ---- Catmull-Rom yardımcıları ---- */
+function crPoint(p0, p1, p2, p3, t) {
+  const t2 = t * t, t3 = t2 * t;
+  return [
+    0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+    0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
+  ];
+}
+/* keys: [[t, x, y], ...] — zamana göre Catmull-Rom yol */
+function pathAt(keys, t) {
+  if (t <= keys[0][0]) return [keys[0][1], keys[0][2]];
+  const n = keys.length;
+  if (t >= keys[n - 1][0]) return [keys[n - 1][1], keys[n - 1][2]];
+  let i = 0;
+  while (i < n - 2 && t > keys[i + 1][0]) i++;
+  const k0 = keys[Math.max(0, i - 1)], k1 = keys[i], k2 = keys[i + 1], k3 = keys[Math.min(n - 1, i + 2)];
+  const u = (t - k1[0]) / (k2[0] - k1[0]);
+  return crPoint([k0[1], k0[2]], [k1[1], k1[2]], [k2[1], k2[2]], [k3[1], k3[2]], u);
+}
+
+function bez2(p0, p1, p2, t) {
+  const u = 1 - t;
+  return [u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1]];
+}
+function bez3(p0, p1, p2, p3, t) {
+  const u = 1 - t;
+  return [
+    u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+    u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
+  ];
+}
+
+const f1 = (v) => (Math.round(v * 10) / 10).toString();
+function ptsStr(pts) {
+  let s = '';
+  for (let i = 0; i < pts.length; i++) s += (i ? ' ' : '') + f1(pts[i][0]) + ',' + f1(pts[i][1]);
+  return s;
+}
+
+/* Omurga + kalınlıklardan yumuşak uzuv yolu (parmak, kol, kanat kenarı) */
+function crSegs(P) {
+  let d = '';
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += ` C${f1(c1[0])} ${f1(c1[1])} ${f1(c2[0])} ${f1(c2[1])} ${f1(p2[0])} ${f1(p2[1])}`;
+  }
+  return d;
+}
+function limbPath(pts, ws, capStart) {
+  const n = pts.length, Lp = [], Rp = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+    let dx = b[0] - a[0], dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    const nx = -dy, ny = dx, w = ws[i] / 2;
+    Lp.push([pts[i][0] + nx * w, pts[i][1] + ny * w]);
+    Rp.push([pts[i][0] - nx * w, pts[i][1] - ny * w]);
+  }
+  const we = ws[n - 1] / 2, w0 = ws[0] / 2;
+  let d = `M${f1(Lp[0][0])} ${f1(Lp[0][1])}` + crSegs(Lp);
+  d += ` A${f1(we)} ${f1(we)} 0 0 0 ${f1(Rp[n - 1][0])} ${f1(Rp[n - 1][1])}`;
+  d += crSegs(Rp.slice().reverse());
+  if (capStart) d += ` A${f1(w0)} ${f1(w0)} 0 0 0 ${f1(Lp[0][0])} ${f1(Lp[0][1])}`;
+  return d + 'Z';
+}
+
+/* ==========================================================================
+   OrigamiFXEngine — 60 FPS Canvas kuş sürüsü ve parçacık motoru
+   Her şey zamanın saf fonksiyonudur: render(t) aynı t için aynı kareyi
+   üretir. Böylece scrubber, başa sarma ve kare kare kayıt birebir tutarlı.
+   Fizik modları: (1) ağızdan fırlayan canlı kuş + çarpma/buruşma,
+   (2) yerçekimli kül yağmuru + yığın birikimi, (3) sıcak nefes buharı,
+   (4) zincirleme alevlenme + sarmal (vortex) yükseliş.
+   ========================================================================== */
+'use strict';
+
+/* Birim kuş geometrisi (sağa bakan, ~34 px * size) */
+const BIRD_FACETS = {
+  tail: [[-0.55, -0.04], [-1.1, -0.48], [-0.6, 0.14]],
+  bodyT: [[-0.62, 0.0], [0.0, -0.2], [0.64, 0.0]],
+  bodyB: [[-0.62, 0.0], [0.64, 0.0], [0.0, 0.25]],
+  neck: [[0.34, -0.06], [0.98, -0.66], [0.56, 0.08]],
+  head: [[0.98, -0.66], [1.26, -0.58], [0.88, -0.48]],
+};
+/* Ton paletleri: [açık, orta, koyu, en koyu] */
+const PAL_GRAY = [[140, 149, 162], [107, 114, 128], [75, 85, 99], [52, 61, 76]];
+const PAL_EMBER = [[255, 196, 104], [255, 154, 69], [255, 112, 43], [214, 78, 40]];
+const PAL_GOLD = [[255, 246, 220], [255, 226, 140], [255, 196, 80], [244, 158, 92]];
+
+class OrigamiFXEngine {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.sprites = {
+      ember: this._sprite([255, 132, 52]),
+      gold: this._sprite([255, 222, 140]),
+      white: this._sprite([255, 246, 228]),
+      cold: this._sprite([140, 214, 245]),
+    };
+    this.vignette = null;
+    this.reset();
+  }
+
+  _sprite(rgb) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, `rgba(${rgb},1)`);
+    gr.addColorStop(0.22, `rgba(${rgb},0.55)`);
+    gr.addColorStop(0.55, `rgba(${rgb},0.14)`);
+    gr.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 128, 128);
+    return c;
+  }
+
+  /* Başa sarmada tüm diziler tertemiz */
+  reset() {
+    this.cursor = 0;
+    this.rng = mulberry32(20261123);
+    this.birds = [];
+    this.hitBursts = [];
+    this.sparks = [];
+    this.breath = [];
+    this.vapor = [];
+    this.macroSparks = [];
+    this.ignition = null;
+    this.heightmap = new Float32Array(120);
+    this.landedTimes = [];
+    this.dust = this._makeDust();
+    this.heroTrail = null;
+    this.finalized = false;
+  }
+
+  at(t) { this.cursor = t; return this; }
+
+  _newBird(kind, size) {
+    const r = this.rng;
+    const b = {
+      id: this.birds.length, kind, size,
+      seed: r() * 1000,
+      tone: 0.9 + r() * 0.2,
+      rotRest: (r() - 0.5) * 1.4,
+      spin: (r() < 0.5 ? -1 : 1) * (3 + r() * 6),
+      flutterF: 5 + r() * 4, flutterA: 14 + r() * 26, flutterP: r() * TAU,
+      depth: r(),
+      rr: r(),
+    };
+    /* buruşuk form: her köşe için sabit sapma */
+    const crumple = [];
+    const ang = r() * TAU;
+    for (let i = 0; i < 27; i++) {
+      const a = ang + r() * TAU, rad = 0.18 + r() * 0.34;
+      crumple.push([Math.cos(a) * rad * 1.15, Math.sin(a) * rad * 0.72]);
+    }
+    b.crumple = crumple;
+    return b;
+  }
+
+  /* (1) Ağızdan fırlayan canlı turuncu kuş: targetX hizasında soğuk sırta çarpar */
+  spawnMouthBird(x, y, vx, vy, targetX, opts) {
+    opts = opts || {};
+    const r = this.rng;
+    const b = this._newBird('mouth', opts.size || 1.0);
+    const dur = opts.dur || 0.8;
+    b.tLaunch = this.cursor;
+    b.tHit = this.cursor + dur;
+    b.p0 = [x, y];
+    b.c1 = [x + vx * dur * 0.5, y + vy * dur * 0.5];
+    b.pHit = [targetX, opts.targetY !== undefined ? opts.targetY : 960];
+    b.dir = Math.sign(targetX - x) || 1;
+    b.xLand = clamp(b.pHit[0] - b.dir * (30 + r() * 70), 150, 700);
+    b.fallDur = 0.95 + r() * 0.35;
+    b.tLand = b.tHit + b.fallDur;
+    b.depth = 0.05 + r() * 0.45;
+    this.birds.push(b);
+    this.hitBursts.push({ t: b.tHit, x: b.pHit[0], y: b.pHit[1], dir: b.dir, seed: r() * 1000 });
+    return b;
+  }
+
+  /* (2) 13–25. saniye: zeminde 150+ buruşuk gri kuş birikir */
+  populateFloorGraveyard(count) {
+    const r = this.rng, t0 = this.cursor;
+    for (let i = 0; i < count; i++) {
+      const b = this._newBird('rain', 0.72 + r() * 0.5);
+      const u = (i + r()) / count;
+      const v = 2 * u - 1;
+      b.tLand = t0 + 0.45 + 10.7 * (0.5 + 0.5 * Math.sign(v) * Math.pow(Math.abs(v), 1.45));
+      let x = 540 + gauss(r) * 205;
+      while (x < 95 || x > 715) x = 470 + gauss(r) * 170;
+      b.depth = r();
+      /* kahramanın yattığı ve kayacağı ön koridoru boş bırak */
+      if (b.depth > 0.5 && x > 380) b.depth = r() * 0.5;
+      if (x > 640) b.depth = r() * 0.3;
+      b.xLand = x;
+      b.fallDur = 1.35 + r() * 0.8;
+      b.tStart = b.tLand - b.fallDur;
+      b.xStart = x + (r() - 0.5) * 260;
+      b.yStart = -260 + r() * 140;
+      this.birds.push(b);
+    }
+  }
+
+  /* (3) 33–37. saniye: yükselen altın buhar ve mikro ışık tanecikleri (makro uzay) */
+  emitWarmBreath(x, y, duration) {
+    const r = this.rng, t0 = this.cursor, dur = duration || 3.4;
+    const N = 170;
+    for (let i = 0; i < N; i++) {
+      const tb = t0 + (i / N) * (dur - 0.7) + r() * 0.08;
+      const life = 1.3 + r() * 1.2;
+      this.breath.push({
+        tb, life,
+        x: x + (r() - 0.5) * 30, y: y + (r() - 0.5) * 16,
+        vx: (r() - 0.5) * 520, vy: 1500 + r() * 900,
+        k: 1.5 + r() * 0.8, g: -60 - r() * 80,
+        s: 1.2 + r() * 3.2, tw: r() * TAU, gold: r() < 0.75,
+      });
+    }
+    for (let i = 0; i < 26; i++) {
+      const tb = t0 + (i / 26) * (dur - 0.9);
+      this.vapor.push({
+        tb, life: 1.6 + r() * 1.0,
+        x: x + (r() - 0.5) * 40, y: y + 20,
+        vx: (r() - 0.5) * 200, vy: 1100 + r() * 500, k: 1.3,
+        s0: 50 + r() * 40, s1: 220 + r() * 160, a: 0.1 + r() * 0.08,
+      });
+    }
+  }
+
+  /* Altın damar anında makro kuşun etrafına kıvılcım */
+  macroBurst(x, y, n) {
+    const r = this.rng, t0 = this.cursor;
+    for (let i = 0; i < (n || 60); i++) {
+      const a = r() * TAU, sp = 120 + r() * 520;
+      this.macroSparks.push({
+        tb: t0 + r() * 0.35, life: 0.7 + r() * 1.1,
+        x: x + (r() - 0.5) * 120, y: y + (r() - 0.5) * 160,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120, k: 2.2, g: -60,
+        s: 1.5 + r() * 3,
+      });
+    }
+  }
+
+  /* (4) 37.5: origin noktasından mesafeye bağlı gecikmeyle zincirleme alevlenme */
+  igniteFloorWave(originX, originY) {
+    const r = this.rng, t0 = this.cursor;
+    this.ignition = { t: t0, x: originX, y: originY };
+    for (const b of this.birds) {
+      if (b.tLand === undefined) continue;
+      const d = Math.hypot(b.xLand - originX, (b.yRest || 1620) - originY);
+      b.tIgn = t0 + d / 360 + r() * 0.18;
+      b.tLift = Math.min(41.2, b.tIgn + 0.45 + r() * r() * 2.8);
+      b.v0 = 140 + r() * 110 + (b.tLift > 40 ? 80 : 0);
+      b.acc = 8 + r() * 30;
+      b.omega = 0.75 + r() * 0.45;
+      b.Rmid = 120 + r() * 300;
+      b.theta0 = b.xLand >= 540 ? 0 : Math.PI;
+      for (let k = 0; k < 4; k++) {
+        const a = -Math.PI / 2 + (r() - 0.5) * 2.2;
+        const sp = 140 + r() * 360;
+        this.sparks.push({
+          tb: b.tIgn + r() * 0.3, life: 0.8 + r() * 1.1,
+          x: b.xLand, y: 0, bird: b,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, k: 1.8, g: -70,
+          s: 1.4 + r() * 2.6, gold: r() < 0.55,
+        });
+      }
+    }
+  }
+
+  /* Yığın: iniş sırasına göre yükseklik haritası */
+  finalize() {
+    const landers = this.birds.filter((b) => b.tLand !== undefined).sort((a, b) => a.tLand - b.tLand);
+    this.heightmap.fill(0);
+    const AMT = 2.55;
+    for (const b of landers) {
+      const bin = clamp(Math.round(b.xLand / 10), 0, this.heightmap.length - 1);
+      const h = this.heightmap[bin];
+      const base = 1600 + b.depth * 72;
+      b.yRest = base - h * (1 - 0.5 * b.depth) - b.size * 7;
+      for (let k = -7; k <= 7; k++) {
+        const j = bin + k;
+        if (j < 0 || j >= this.heightmap.length) continue;
+        this.heightmap[j] = Math.min(132, this.heightmap[j] + AMT * Math.exp(-(k * k) / (2 * 3.4 * 3.4)));
+      }
+      this.landedTimes.push(b.tLand);
+    }
+    for (const s of this.sparks) if (s.bird) s.y = s.bird.yRest;
+    this.finalized = true;
+  }
+
+  /* 0..1: zemindeki yığının doluluk oranı (SVG höyüğü bununla yükselir) */
+  pileFraction(t) {
+    const L = this.landedTimes;
+    if (!L.length) return 0;
+    let lo = 0, hi = L.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (L[m] <= t) lo = m + 1; else hi = m; }
+    return lo / L.length;
+  }
+
+  _makeDust() {
+    const r = mulberry32(99);
+    const arr = [];
+    for (let i = 0; i < 90; i++) {
+      arr.push({
+        x0: -300 + r() * 1700, y0: -500 + r() * 2500,
+        vx: 6 + r() * 16, vy: 4 + r() * 10,
+        f: 0.2 + r() * 0.5, p: r() * TAU, A: 8 + r() * 26,
+        s: 0.8 + r() * 2.6, a: 0.12 + r() * 0.35, par: 0.7 + r() * 0.5,
+      });
+    }
+    return arr;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Bir kuşun t anındaki pozu                                           */
+  /* ------------------------------------------------------------------ */
+  _pose(b, t) {
+    const P = { x: 0, y: 0, s: b.size, rot: 0, flip: 1, c: 1, g: 1, au: 0, glow: 0, phase: 0, amp: 0, z: 0, alpha: 1, mode: 0 };
+    if (b.kind === 'mouth') {
+      if (t < b.tLaunch) return null;
+      if (t < b.tHit) {
+        const u = (t - b.tLaunch) / (b.tHit - b.tLaunch);
+        const e = Math.pow(u, 1.12);
+        const p = bez2(b.p0, b.c1, b.pHit, e);
+        const p2 = bez2(b.p0, b.c1, b.pHit, Math.min(1, e + 0.02));
+        P.x = p[0]; P.y = p[1];
+        P.flip = p2[0] >= p[0] ? 1 : -1;
+        P.rot = clamp(Math.atan2(p2[1] - p[1], Math.abs(p2[0] - p[0]) + 1e-3), -0.9, 0.9);
+        P.s = b.size * (0.3 + 0.7 * smooth(Math.min(1, u * 3.5)));
+        P.c = 0; P.g = 0; P.glow = 1; P.amp = 1; P.phase = (t - b.tLaunch) * 24 + b.seed; P.mode = 1;
+        return P;
+      }
+      if (t < b.tLand) {
+        const tau = t - b.tHit;
+        const k = Math.min(1, tau / 0.12);
+        const v = tau / b.fallDur;
+        const xh = b.pHit[0] - b.dir * 14;
+        P.x = lerp(xh, b.xLand, Ease.out(v)) + Math.sin(tau * b.flutterF + b.flutterP) * 12 * (1 - v);
+        P.y = b.pHit[1] + (b.yRest - b.pHit[1]) * (0.25 * v + 0.75 * v * v) - 34 * Math.sin(Math.min(1, v * 3.2) * Math.PI) * (1 - v);
+        P.rot = b.rotRest * v + b.spin * tau * 0.35;
+        P.c = smooth(k); P.g = smooth(k); P.glow = 1 - k; P.amp = 1 - k; P.phase = b.seed + tau * 10; P.mode = 2;
+        P.flip = -b.dir;
+        return P;
+      }
+    } else {
+      if (t < b.tStart) return null;
+      if (t < b.tLand) {
+        const tau = t - b.tStart, v = tau / b.fallDur;
+        P.x = lerp(b.xStart, b.xLand, Ease.inOutSine(v)) + Math.sin(tau * b.flutterF + b.flutterP) * b.flutterA * (1 - v * 0.7);
+        P.y = lerp(b.yStart, b.yRest, Math.pow(v, 1.3));
+        P.rot = b.rotRest + b.spin * (tau - b.fallDur) * 0.3;
+        P.mode = 2;
+        return P;
+      }
+    }
+    /* yerde */
+    const sinceLand = t - b.tLand;
+    P.x = b.xLand; P.y = b.yRest - 5 * Math.sin(Math.PI * Math.min(1, sinceLand / 0.16)) * (sinceLand < 0.16 ? 1 : 0);
+    P.rot = b.rotRest; P.mode = 3;
+    if (b.tIgn === undefined || t < b.tIgn) return P;
+
+    /* alevlenme */
+    const ti = t - b.tIgn;
+    const e = smooth(Math.min(1, ti / 0.32));
+    P.g = 1 - e; P.au = 0.15 * e; P.glow = e;
+    P.c = 1 - smooth(clamp((ti - 0.08) / 0.5, 0, 1));
+    P.amp = smooth(clamp((ti - 0.25) / 0.4, 0, 1));
+    P.phase = b.seed + ti * 15;
+    P.rot = lerp(b.rotRest, 0, smooth(Math.min(1, ti / 0.5)));
+    P.y = b.yRest - 10 * Math.sin(Math.min(1, ti / 0.5) * Math.PI) * e;
+    P.mode = 4;
+    if (t < b.tLift) return P;
+
+    /* sarmal yükseliş */
+    const tau = t - b.tLift;
+    const rise = b.v0 * tau + 0.5 * b.acc * tau * tau;
+    const axis = 540 + 70 * Math.sin(0.5 * tau + b.seed);
+    const R0 = Math.abs(b.xLand - 540);
+    const R = R0 + (b.Rmid - R0) * smooth(Math.min(1, tau / 1.7)) + 20 * tau;
+    const th = b.theta0 - b.omega * tau;
+    const vx = axis + R * Math.cos(th);
+    const z = Math.sin(th);
+    const blend = smooth(Math.min(1, tau / 0.55));
+    P.x = lerp(b.xLand, vx, blend);
+    P.y = b.yRest - rise + z * 34 * blend;
+    P.z = z * blend;
+    /* yön: türevden */
+    const th2 = th - b.omega * 0.03;
+    const dx = (axis + (R + 0.6) * Math.cos(th2)) - vx;
+    P.flip = dx >= 0 ? 1 : -1;
+    P.rot = -0.25 - 0.25 * blend;
+    const far = clamp(rise / 3400, 0, 1);
+    P.s = b.size * (1 + 0.24 * P.z) * (1 - 0.3 * far) * (1 + 0.6 * blend);
+    P.au = 0.42 + 0.45 * clamp(rise / 1400, 0, 1);
+    P.c = 0; P.g = 0; P.glow = 1 - 0.5 * blend; P.amp = 1; P.phase = b.seed + tau * 16 + ti * 15;
+    P.mode = 5;
+    return P;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Origami kuş çizimi: iki tonlu yüzeyler, sinüsle çırpan kanatlar      */
+  /* ------------------------------------------------------------------ */
+  _drawBird(ctx, b, P) {
+    const S = 34 * P.s;
+    const ca = Math.cos(P.rot), sa = Math.sin(P.rot);
+    const amp = P.amp, ph = P.phase;
+    const fN = Math.cos(ph), fF = Math.cos(ph + 0.45);
+    const tipN = [-0.04 + 0.1 * Math.sin(ph), -1.32 * fN * amp - (1 - amp) * 0.5];
+    const tipF = [-0.14 + 0.1 * Math.sin(ph + 0.45), -1.12 * fF * amp - (1 - amp) * 0.42];
+    const wingF = [[-0.28, -0.08], [-0.02, -0.08], tipF, [0.24, -0.08]];
+    const wingN = [[-0.32, -0.05], [-0.03, -0.05], tipN, [0.27, -0.05]];
+    const underN = tipN[1] > 0, underF = tipF[1] > 0;
+
+    const facets = [
+      { p: [wingF[0], wingF[1], wingF[2]], tone: underF ? 3 : 2 },
+      { p: [wingF[1], wingF[3], wingF[2]], tone: 3 },
+      { p: BIRD_FACETS.tail, tone: 1 },
+      { p: BIRD_FACETS.bodyB, tone: 2 },
+      { p: BIRD_FACETS.bodyT, tone: 0 },
+      { p: BIRD_FACETS.neck, tone: 1 },
+      { p: BIRD_FACETS.head, tone: 0 },
+      { p: [wingN[0], wingN[1], wingN[2]], tone: underN ? 2 : 0 },
+      { p: [wingN[1], wingN[3], wingN[2]], tone: underN ? 3 : 1 },
+    ];
+    const g = P.g, au = P.au, c = P.c, tone = b.tone;
+    const cr = b.crumple;
+    let vi = 0;
+    for (let fi = 0; fi < facets.length; fi++) {
+      const f = facets[fi];
+      const col0 = mixRgb(mixRgb(PAL_EMBER[f.tone], PAL_GRAY[(f.tone + fi) % 4], g), PAL_GOLD[f.tone], au);
+      const col = g > 0.5 ? [col0[0] * tone, col0[1] * tone, col0[2] * tone] : col0;
+      ctx.beginPath();
+      for (let k = 0; k < 3; k++) {
+        const q = f.p[k];
+        const cv = cr[vi % cr.length]; vi++;
+        const lx = lerp(q[0], cv[0], c) * P.flip;
+        const ly = lerp(q[1], cv[1], c);
+        const X = P.x + (lx * ca - ly * sa * P.flip) * S;
+        const Y = P.y + (lx * sa * P.flip + ly * ca) * S;
+        if (k === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = rgbStr(col);
+      ctx.fill();
+    }
+    /* katlama çizgisi (kağıt sırtı) */
+    if (c < 0.6 && S > 10) {
+      ctx.strokeStyle = g > 0.5 ? 'rgba(200,210,225,0.25)' : 'rgba(255,240,200,0.45)';
+      ctx.lineWidth = Math.max(0.6, S * 0.03);
+      ctx.beginPath();
+      const a0 = [-0.6, 0], a1 = [0.62, 0];
+      for (let k = 0; k < 2; k++) {
+        const q = k ? a1 : a0;
+        const lx = q[0] * P.flip, ly = q[1];
+        const X = P.x + (lx * ca - ly * sa * P.flip) * S, Y = P.y + (lx * sa * P.flip + ly * ca) * S;
+        if (k === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Ana çizim                                                            */
+  /* opts: { cam:[matrix], worldAlpha, macro:[matrix], macroAlpha,        */
+  /*         warm, cold, hero: fn(t)->{x,y,alive} , vignette }            */
+  /* ------------------------------------------------------------------ */
+  render(t, o) {
+    const ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const wa = o.worldAlpha;
+
+    if (wa > 0.002) {
+      const m = o.cam;
+      ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+      ctx.globalAlpha = wa;
+      this._drawDust(ctx, t, o);
+      this._drawBirds(ctx, t, o);
+      this._drawSparks(ctx, t, o);
+      ctx.globalAlpha = 1;
+    }
+    if (o.macroAlpha > 0.002 && o.macro) {
+      const m = o.macro;
+      ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+      ctx.globalAlpha = o.macroAlpha;
+      this._drawBreath(ctx, t);
+      ctx.globalAlpha = 1;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this._drawVignette(ctx, o.vignette === undefined ? 1 : o.vignette);
+  }
+
+  _drawDust(ctx, t, o) {
+    const warm = o.warm || 0;
+    ctx.globalCompositeOperation = 'lighter';
+    const base = ctx.globalAlpha;
+    for (const d of this.dust) {
+      const lift = warm * 60 * Math.max(0, t - 37.5);
+      const x = wrap(d.x0 + d.vx * t * d.par, -350, 1430);
+      const y = wrap(d.y0 - d.vy * t - lift + Math.sin(t * d.f + d.p) * d.A, -700, 2300);
+      const tw = 0.6 + 0.4 * Math.sin(t * 1.7 + d.p * 3);
+      const a = d.a * tw * (0.55 + 0.45 * warm);
+      const spr = warm > 0.5 ? this.sprites.gold : this.sprites.cold;
+      const sz = d.s * 9 * (1 + warm * 0.4);
+      ctx.globalAlpha = base * a;
+      ctx.drawImage(spr, x - sz / 2, y - sz / 2, sz, sz);
+    }
+    ctx.globalAlpha = base;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  _drawBirds(ctx, t, o) {
+    const list = [];
+    for (const b of this.birds) {
+      const P = this._pose(b, t);
+      if (!P) continue;
+      let key;
+      if (P.mode === 3 || P.mode === 4) key = P.y;
+      else if (P.mode === 5) key = 3000 + P.z * 10 + b.id * 0.001;
+      else key = 2500 + b.id * 0.001;
+      list.push([key, b, P]);
+    }
+    list.sort((a, b) => a[0] - b[0]);
+    const base = ctx.globalAlpha;
+
+    /* parıltılar (altta, 'lighter') */
+    ctx.globalCompositeOperation = 'lighter';
+    for (const [, b, P] of list) {
+      if (P.glow <= 0.02) continue;
+      const S = 34 * P.s;
+      const spr = P.au > 0.45 ? this.sprites.gold : this.sprites.ember;
+      const sz = S * 4.6;
+      ctx.globalAlpha = base * (P.mode === 5 ? 0.3 : 0.5) * P.glow;
+      ctx.drawImage(spr, P.x - sz / 2, P.y - sz / 2, sz, sz);
+      /* ışık izi */
+      if (P.mode === 1 || P.mode === 5) {
+        for (let k = 1; k <= 6; k++) {
+          const Q = this._pose(b, t - k * 0.028);
+          if (!Q || (Q.mode !== 1 && Q.mode !== 5)) break;
+          const s2 = S * (1.5 - k * 0.16);
+          ctx.globalAlpha = base * 0.34 * P.glow * (1 - k / 7);
+          ctx.drawImage(spr, Q.x - s2 / 2, Q.y - s2 / 2, s2, s2);
+        }
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = base;
+    for (const [, b, P] of list) this._drawBird(ctx, b, P);
+
+    /* kahraman kuşun ışık izi */
+    if (o.hero) {
+      const h0 = o.hero(t);
+      if (h0 && h0.alive > 0.05) {
+        ctx.globalCompositeOperation = 'lighter';
+        for (let k = 1; k <= 9; k++) {
+          const h = o.hero(t - k * 0.03);
+          if (!h || h.alive < 0.05) break;
+          const s2 = 46 * h.s * (1.3 - k * 0.11);
+          ctx.globalAlpha = base * 0.3 * h0.alive * (1 - k / 10);
+          ctx.drawImage(h.gold ? this.sprites.gold : this.sprites.ember, h.x - s2 / 2, h.y - s2 / 2, s2, s2);
+        }
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = base;
+      }
+    }
+  }
+
+  _sparkPos(s, tau) {
+    const e = (1 - Math.exp(-s.k * tau)) / s.k;
+    return [s.x + s.vx * e, s.y + s.vy * e + 0.5 * s.g * tau * tau];
+  }
+
+  _drawSparks(ctx, t, o) {
+    const base = ctx.globalAlpha;
+    ctx.globalCompositeOperation = 'lighter';
+    /* çarpma anında sönen kıvılcımlar */
+    for (const h of this.hitBursts) {
+      const tau = t - h.t;
+      if (tau < 0 || tau > 0.9) continue;
+      const r = mulberry32(Math.floor(h.seed));
+      for (let i = 0; i < 18; i++) {
+        const a = Math.PI + (h.dir > 0 ? 0 : Math.PI) + (r() - 0.5) * 2.6 - 0.5;
+        const sp = 120 + r() * 380, life = 0.25 + r() * 0.45;
+        if (tau > life) { r(); continue; }
+        const k = 3.2, e = (1 - Math.exp(-k * tau)) / k;
+        const x = h.x + Math.cos(a) * sp * e;
+        const y = h.y + Math.sin(a) * sp * e + 260 * tau * tau;
+        const q = 1 - tau / life;
+        const sz = (5 + r() * 9) * q;
+        ctx.globalAlpha = base * q * 0.9;
+        ctx.drawImage(q > 0.45 ? this.sprites.ember : this.sprites.cold, x - sz, y - sz, sz * 2, sz * 2);
+      }
+    }
+    /* alevlenme kıvılcımları */
+    for (const s of this.sparks) {
+      const tau = t - s.tb;
+      if (tau < 0 || tau > s.life) continue;
+      const [x, y] = this._sparkPos(s, tau);
+      const q = 1 - tau / s.life;
+      const sz = s.s * 6 * (0.5 + q);
+      ctx.globalAlpha = base * Math.min(1, q * 1.6) * 0.85;
+      ctx.drawImage(s.gold ? this.sprites.gold : this.sprites.ember, x - sz / 2, y - sz / 2, sz, sz);
+    }
+    ctx.globalAlpha = base;
+    ctx.globalCompositeOperation = 'source-over';
+    /* çarpmada kopan gri kağıt kırıntıları */
+    for (const h of this.hitBursts) {
+      const tau = t - h.t;
+      if (tau < 0 || tau > 1.2) continue;
+      const r = mulberry32(Math.floor(h.seed) + 7);
+      for (let i = 0; i < 7; i++) {
+        const a = -Math.PI / 2 + (r() - 0.5) * 2.4;
+        const sp = 60 + r() * 160;
+        const x = h.x + Math.cos(a) * sp * tau - h.dir * 20 * tau;
+        const y = h.y + Math.sin(a) * sp * tau + 380 * tau * tau;
+        const q = 1 - tau / 1.2;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(tau * (6 + i));
+        ctx.fillStyle = `rgba(120,128,142,${q * 0.9})`;
+        const s = 3 + r() * 4;
+        ctx.fillRect(-s / 2, -s / 3, s, s * 0.66);
+        ctx.restore();
+      }
+    }
+  }
+
+  _drawBreath(ctx, t) {
+    const base = ctx.globalAlpha;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const v of this.vapor) {
+      const tau = t - v.tb;
+      if (tau < 0 || tau > v.life) continue;
+      const q = tau / v.life;
+      const e = (1 - Math.exp(-v.k * tau)) / v.k;
+      const x = v.x + v.vx * e, y = v.y + v.vy * e;
+      const sz = lerp(v.s0, v.s1, Ease.out(q));
+      ctx.globalAlpha = base * v.a * Math.sin(Math.PI * q);
+      ctx.drawImage(this.sprites.white, x - sz / 2, y - sz / 2, sz, sz);
+    }
+    for (const p of this.breath) {
+      const tau = t - p.tb;
+      if (tau < 0 || tau > p.life) continue;
+      const q = tau / p.life;
+      const e = (1 - Math.exp(-p.k * tau)) / p.k;
+      const x = p.x + p.vx * e + Math.sin(tau * 3 + p.tw) * 10;
+      const y = p.y + p.vy * e + 0.5 * p.g * tau * tau;
+      const tw = 0.6 + 0.4 * Math.sin(tau * 9 + p.tw);
+      const sz = p.s * 7 * (0.6 + 0.6 * Math.sin(Math.PI * q));
+      ctx.globalAlpha = base * Math.sin(Math.PI * q) * tw * 0.9;
+      ctx.drawImage(p.gold ? this.sprites.gold : this.sprites.white, x - sz / 2, y - sz / 2, sz, sz);
+    }
+    for (const s of this.macroSparks) {
+      const tau = t - s.tb;
+      if (tau < 0 || tau > s.life) continue;
+      const [x, y] = this._sparkPos(s, tau);
+      const q = 1 - tau / s.life;
+      const sz = s.s * 7 * (0.4 + q);
+      ctx.globalAlpha = base * Math.min(1, q * 1.5);
+      ctx.drawImage(this.sprites.gold, x - sz / 2, y - sz / 2, sz, sz);
+    }
+    ctx.globalAlpha = base;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  _drawVignette(ctx, k) {
+    if (!this.vignette) {
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const g = c.getContext('2d');
+      const gr = g.createRadialGradient(540, 980, 380, 540, 980, 1250);
+      gr.addColorStop(0, 'rgba(2,3,8,0)');
+      gr.addColorStop(0.6, 'rgba(2,3,8,0.22)');
+      gr.addColorStop(1, 'rgba(2,3,8,0.72)');
+      g.fillStyle = gr;
+      g.fillRect(0, 0, W, H);
+      this.vignette = c;
+    }
+    ctx.globalAlpha = k;
+    ctx.drawImage(this.vignette, 0, 0);
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* ==========================================================================
+   SoundEngine — %100 prosedürel Web Audio: foley, çello, bildirim, vakum,
+   çelesta ve vokal-formant koro. Tüm partisyon OfflineAudioContext ile
+   örnek-hassas bir AudioBuffer'a yazılır, sonra görüntü saatiyle oynatılır.
+   (Bu sayede scrub/başa sarmada ses asla kaymaz ve üst üste binmez.)
+   ========================================================================== */
+'use strict';
+
+const NOTE = {
+  C2: 65.41, G1: 49.0, Ab1: 51.91, Eb2: 77.78, G2: 98.0, Ab2: 103.83, C3: 130.81, Eb3: 155.56, G3: 196.0,
+  C4: 261.63, D4: 293.66, Eb4: 311.13, E4: 329.63, F4: 349.23, G4: 392.0, Ab4: 415.3, Bb4: 466.16, B4: 493.88,
+  C5: 523.25, D5: 587.33, Eb5: 622.25, E5: 659.25, F5: 698.46, G5: 783.99, Ab5: 830.61, Bb5: 932.33, B5: 987.77,
+  C6: 1046.5, D6: 1174.66, E6: 1318.51, Fs6: 1479.98, G6: 1567.98, B6: 1975.53, Cs7: 2217.46, D7: 2349.32,
+};
+const semi = (f, n) => f * Math.pow(2, n / 12);
+
+class SoundEngine {
+  constructor() {
+    this.sr = 48000;
+    this.duration = DURATION;
+    this.buffer = null;
+    this.live = null;
+    this.src = null;
+    this.liveGain = null;
+  }
+
+  /* -------------------------- partisyonu çiz -------------------------- */
+  async renderScore(story) {
+    const ctx = new OfflineAudioContext(2, Math.ceil(this.sr * this.duration), this.sr);
+    this.ctx = ctx;
+    this.rng = mulberry32(4242);
+    this._buildGraph();
+    this._makeSamples();
+    this._compose(story);
+    const buf = await ctx.startRendering();
+    /* zirve normalizasyonu (-0.8 dBFS) */
+    let peak = 0;
+    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); if (v > peak) peak = v; }
+    }
+    const g = peak > 0 ? 0.91 / peak : 1;
+    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < d.length; i++) d[i] *= g;
+    }
+    this.buffer = buf;
+    this.ctx = null;
+    return buf;
+  }
+
+  _buildGraph() {
+    const c = this.ctx;
+    this.master = c.createGain();
+    this.master.gain.value = 0.85;
+    this.comp = c.createDynamicsCompressor();
+    this.comp.threshold.value = -16;
+    this.comp.knee.value = 14;
+    this.comp.ratio.value = 3.2;
+    this.comp.attack.value = 0.006;
+    this.comp.release.value = 0.28;
+    this.master.connect(this.comp);
+    this.comp.connect(c.destination);
+
+    this.dry = c.createGain();
+    this.dry.connect(this.master);
+
+    /* Ana salon yankısı: 3.2 sn sıcak konser salonu */
+    this.revSend = c.createGain();
+    this.conv = c.createConvolver();
+    this.conv.normalize = true;
+    this.conv.buffer = this._makeIR(3.2, 0.62, 11);
+    this.revReturn = c.createGain();
+    this.revReturn.gain.value = 0.85;
+    this.revSend.connect(this.conv);
+    this.conv.connect(this.revReturn);
+    this.revReturn.connect(this.master);
+
+    /* Kalabalık otobüsü — 27. sn'de vakumla kesilecek tek #crowdFilter */
+    this.crowdIn = c.createGain();
+    this.crowdIn.gain.value = 0.7;
+    this.crowdFilter = c.createBiquadFilter();
+    this.crowdFilter.type = 'lowpass';
+    this.crowdFilter.frequency.value = 18000;
+    this.crowdFilter.Q.value = 0.7;
+    this.crowdGain = c.createGain();
+    this.crowdIn.connect(this.crowdFilter);
+    this.crowdFilter.connect(this.crowdGain);
+    this.crowdGain.connect(this.dry);
+    /* kalabalığın ayrı, soğuk yankısı (vakumda kuyruğuyla birlikte kesilir) */
+    this.crowdRevSend = c.createGain();
+    this.crowdRevSend.gain.value = 0.3;
+    this.crowdConv = c.createConvolver();
+    this.crowdConv.buffer = this._makeIR(1.6, 0.35, 23);
+    this.crowdRevGain = c.createGain();
+    this.crowdGain.connect(this.crowdRevSend);
+    this.crowdRevSend.connect(this.crowdConv);
+    this.crowdConv.connect(this.crowdRevGain);
+    this.crowdRevGain.connect(this.master);
+  }
+
+  /* Prosedürel yankı tepkisi: üstel sönüm + erken yansımalar + ısınan kuyruk */
+  _makeIR(seconds, damp, seed) {
+    const c = this.ctx, sr = this.sr, len = Math.floor(seconds * sr);
+    const ir = c.createBuffer(2, len, sr);
+    const r = mulberry32(seed);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        const env = Math.exp((-6.9 * t) / seconds);
+        const k = 0.15 + 0.8 * Math.exp(-t * (1.5 / damp));
+        lp = lp + k * ((r() * 2 - 1) - lp);
+        d[i] = lp * env * (t < 0.012 ? t / 0.012 : 1);
+      }
+      for (let e = 0; e < 14; e++) {
+        const pos = Math.floor((0.008 + r() * 0.085) * sr);
+        d[pos] += (r() * 2 - 1) * 0.9 * Math.exp(-e * 0.18);
+      }
+    }
+    return ir;
+  }
+
+  /* --------------------- prosedürel örnekler (kağıt) ------------------- */
+  _buf(seconds, fill) {
+    const c = this.ctx, n = Math.floor(seconds * this.sr);
+    const b = c.createBuffer(1, n, this.sr);
+    fill(b.getChannelData(0), this.sr, n);
+    let pk = 0;
+    const d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) pk = Math.max(pk, Math.abs(d[i]));
+    if (pk > 0) for (let i = 0; i < n; i++) d[i] /= pk;
+    return b;
+  }
+
+  _grains(d, sr, n, r, count, opts) {
+    for (let g = 0; g < count; g++) {
+      const pos = opts.when(r()) * n;
+      const len = Math.floor(sr * (opts.minLen + r() * opts.varLen));
+      const amp = opts.amp(pos / n) * (0.25 + r() * 0.75);
+      let hp = 0, prev = 0;
+      const bright = opts.bright + r() * 0.1;
+      for (let i = 0; i < len && pos + i < n; i++) {
+        const w = r() * 2 - 1;
+        hp = bright * (hp + w - prev);
+        prev = w;
+        const env = Math.exp((-5 * i) / len) * (i < 24 ? i / 24 : 1);
+        d[Math.floor(pos) + i] += hp * env * amp;
+      }
+    }
+  }
+
+  _makeSamples() {
+    const r = this.rng;
+    this.noise = this._buf(2.0, (d) => { for (let i = 0; i < d.length; i++) d[i] = r() * 2 - 1; });
+    this.pink = this._buf(3.0, (d) => {
+      let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+      for (let i = 0; i < d.length; i++) {
+        const w = r() * 2 - 1;
+        b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.969 * b2 + w * 0.153852;
+        b3 = 0.8665 * b3 + w * 0.3104856; b4 = 0.55 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.016898;
+        d[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362; b6 = w * 0.115926;
+      }
+    });
+    this.brown = this._buf(3.0, (d) => { let l = 0; for (let i = 0; i < d.length; i++) { l = (l + 0.02 * (r() * 2 - 1)) / 1.02; d[i] = l; } });
+    /* kuru kağıt buruşması (0.3 sn) */
+    this.crumples = [0, 1, 2].map(() => this._buf(0.34, (d, sr, n) => {
+      this._grains(d, sr, n, r, 70, { when: (u) => Math.pow(u, 1.7), minLen: 0.0015, varLen: 0.006, bright: 0.86, amp: (p) => Math.pow(1 - p, 0.6) });
+      this._grains(d, sr, n, r, 12, { when: (u) => u * 0.4, minLen: 0.006, varLen: 0.012, bright: 0.55, amp: (p) => 0.6 * (1 - p) });
+    }));
+    /* yumuşak kağıt düşüşü */
+    this.ticks = [0, 1, 2, 3].map(() => this._buf(0.09, (d, sr, n) => {
+      this._grains(d, sr, n, r, 7, { when: (u) => u * 0.6, minLen: 0.002, varLen: 0.008, bright: 0.6, amp: (p) => 1 - p });
+      let lp = 0; for (let i = 0; i < n; i++) { lp += 0.25 * (d[i] - lp); d[i] = lp * 0.6 + d[i] * 0.4; }
+    }));
+    /* sıcak, organik kağıt açılma hışırtısı (1.1 sn) */
+    this.unfold = this._buf(1.15, (d, sr, n) => {
+      this._grains(d, sr, n, r, 150, { when: (u) => u, minLen: 0.002, varLen: 0.01, bright: 0.72, amp: (p) => Math.sin(Math.PI * Math.min(1, p * 1.2)) });
+      this._grains(d, sr, n, r, 18, { when: (u) => 0.15 + u * 0.7, minLen: 0.01, varLen: 0.03, bright: 0.4, amp: (p) => 0.5 * Math.sin(Math.PI * p) });
+      let lp = 0; for (let i = 0; i < n; i++) { lp += 0.35 * (d[i] - lp); d[i] = lp; }
+    });
+    /* tek kağıt kanat çırpışı */
+    this.flaps = [0, 1, 2].map(() => this._buf(0.14, (d, sr, n) => {
+      let lp = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        const env = t < 0.012 ? t / 0.012 : Math.exp(-(t - 0.012) * 32);
+        lp += 0.08 * ((r() * 2 - 1) - lp);
+        d[i] = lp * env;
+      }
+      this._grains(d, sr, n, r, 6, { when: (u) => u * 0.5, minLen: 0.002, varLen: 0.004, bright: 0.7, amp: () => 0.08 });
+    }));
+  }
+
+  /* ------------- örnek seviyesinde karıştırma katmanları (hızlı) ------------- */
+  _layer() { const n = Math.ceil(this.sr * this.duration); return [new Float32Array(n), new Float32Array(n)]; }
+  _mix(layer, sample, at, gain, pan, rate) {
+    const L = layer[0], R = layer[1];
+    rate = rate || 1;
+    const a = ((clamp(pan || 0, -1, 1) + 1) * Math.PI) / 4;
+    const gl = gain * Math.cos(a), gr = gain * Math.sin(a);
+    const i0 = Math.floor(at * this.sr), n = Math.floor((sample.length - 1) / rate);
+    for (let i = 0; i < n; i++) {
+      const idx = i0 + i;
+      if (idx < 0) continue;
+      if (idx >= L.length) break;
+      const sp = i * rate, j = sp | 0, fr = sp - j;
+      const v = sample[j] * (1 - fr) + sample[j + 1] * fr;
+      L[idx] += v * gl; R[idx] += v * gr;
+    }
+  }
+  _layerOut(layer, dest, dryAmt, revAmt) {
+    const c = this.ctx;
+    const b = c.createBuffer(2, layer[0].length, this.sr);
+    b.copyToChannel(layer[0], 0); b.copyToChannel(layer[1], 1);
+    const src = c.createBufferSource(); src.buffer = b;
+    if (dest) { src.connect(dest); }
+    else {
+      const g1 = c.createGain(); g1.gain.value = dryAmt; src.connect(g1); g1.connect(this.dry);
+      if (revAmt) { const g2 = c.createGain(); g2.gain.value = revAmt; src.connect(g2); g2.connect(this.revSend); }
+    }
+    src.start(0);
+  }
+  /* RBJ biquad (JS) */
+  _biquad(x, type, f, Q) {
+    const w = (TAU * f) / this.sr, cs = Math.cos(w), al = Math.sin(w) / (2 * Q);
+    let b0, b1, b2, a0, a1, a2;
+    if (type === 'bandpass') { b0 = al; b1 = 0; b2 = -al; }
+    else if (type === 'highpass') { b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = (1 + cs) / 2; }
+    else { b0 = (1 - cs) / 2; b1 = 1 - cs; b2 = (1 - cs) / 2; }
+    a0 = 1 + al; a1 = -2 * cs; a2 = 1 - al;
+    const y = new Float32Array(x.length);
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < x.length; i++) {
+      const v = (b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+      x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v;
+    }
+    return y;
+  }
+  _norm(x, peak) { let m = 0; for (let i = 0; i < x.length; i++) m = Math.max(m, Math.abs(x[i])); if (m > 0) for (let i = 0; i < x.length; i++) x[i] *= (peak || 1) / m; return x; }
+  _noiseBurst(sec, attack, decay, r) {
+    const n = Math.floor(sec * this.sr), x = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const t = i / this.sr; x[i] = (r() * 2 - 1) * (t < attack ? t / attack : Math.exp(-(t - attack) / decay)); }
+    return x;
+  }
+  _tone(sec, partials, f0, f1, decay, attack) {
+    const n = Math.floor(sec * this.sr), x = new Float32Array(n);
+    let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / this.sr, f = f1 ? f0 * Math.pow(f1 / f0, Math.min(1, t / sec)) : f0;
+      ph += (TAU * f) / this.sr;
+      let v = 0;
+      for (const [h, a] of partials) v += Math.sin(ph * h) * a;
+      x[i] = v * (t < attack ? t / attack : Math.exp(-(t - attack) / decay));
+    }
+    return x;
+  }
+  _makeCrowdSamples() {
+    const r = this.rng;
+    this.sClickA = this._norm(this._biquad(this._noiseBurst(0.035, 0.0015, 0.007, r), 'bandpass', 3300, 7));
+    this.sClickB = this._norm(this._biquad(this._noiseBurst(0.035, 0.0015, 0.007, r), 'bandpass', 4200, 7));
+    this.sTock = this._norm(this._tone(0.08, [[1, 1], [2, 0.25]], 190, 120, 0.018, 0.003));
+    this.sKlank = this._norm(this._biquad(this._noiseBurst(0.14, 0.002, 0.03, r), 'bandpass', 1750, 14));
+    this.sPingE = this._norm(this._pingPair(NOTE.E6, NOTE.B6));
+    this.sPingF = this._norm(this._pingPair(NOTE.Fs6, NOTE.Cs7));
+    this.sTicks = this.ticks.map((b) => this._norm(this._biquad(b.getChannelData(0), 'highpass', 500, 0.7)));
+    this.sFlaps = this.flaps.map((b) => this._norm(this._biquad(b.getChannelData(0), 'bandpass', 900, 0.7)));
+  }
+  _pingPair(f1, f2) {
+    const a = this._tone(0.34, [[1, 1], [2.01, 0.18]], f1, 0, 0.055, 0.004);
+    const b = this._tone(0.34, [[1, 1], [2.01, 0.18]], f2, 0, 0.055, 0.004);
+    const off = Math.floor(0.075 * this.sr), x = new Float32Array(a.length + off);
+    for (let i = 0; i < a.length; i++) { x[i] += a[i]; x[i + off] += b[i]; }
+    return x;
+  }
+
+  /* ----------------------------- yardımcılar --------------------------- */
+  _out(pan, dryAmt, revAmt, dest) {
+    const c = this.ctx;
+    const p = c.createStereoPanner();
+    p.pan.value = clamp(pan || 0, -1, 1);
+    if (dest) { p.connect(dest); return p; }
+    const g1 = c.createGain(); g1.gain.value = dryAmt === undefined ? 1 : dryAmt;
+    p.connect(g1); g1.connect(this.dry);
+    if (revAmt) { const g2 = c.createGain(); g2.gain.value = revAmt; p.connect(g2); g2.connect(this.revSend); }
+    return p;
+  }
+
+  _play(buffer, at, vol, rate, out, offset, dur) {
+    const c = this.ctx;
+    const s = c.createBufferSource();
+    s.buffer = buffer;
+    s.playbackRate.value = rate || 1;
+    const g = c.createGain();
+    g.gain.value = vol;
+    s.connect(g); g.connect(out);
+    s.start(Math.max(0, at), offset || 0, dur);
+    return { s, g };
+  }
+
+  _env(param, at, a, peak, hold, rel) {
+    param.setValueAtTime(0, at);
+    param.linearRampToValueAtTime(peak, at + a);
+    param.setValueAtTime(peak, at + a + hold);
+    param.linearRampToValueAtTime(0, at + a + hold + rel);
+  }
+
+  /* ========================= SÜREKLİ ATMOSFERLER ======================== */
+  /* 112 BPM mekanik çark tıkırtısı + steril bildirim ping'leri + soğuk uğultu */
+  startCrowdAmbience(at, until) {
+    const c = this.ctx, r = this.rng;
+    const L = this._layer();
+    const eighth = 60 / 112 / 2;
+    let i = 0;
+    for (let t = at + 0.05; t < until; t += eighth, i++) {
+      const beat = i % 2 === 0, bar = i % 8 === 0;
+      const swell = 0.75 + 0.45 * inv(12.5, 24.5, t);
+      this._mix(L, beat ? this.sClickA : this.sClickB, t, (beat ? 0.34 : 0.2) * swell, beat ? -0.38 : 0.38, 0.97 + r() * 0.06);
+      if (beat) this._mix(L, this.sTock, t, 0.16 * swell, 0);
+      if (bar) this._mix(L, this.sKlank, t, 0.22 * swell, (r() - 0.5) * 0.6, 0.96 + r() * 0.08);
+    }
+    /* steril neon bildirim ping'leri (E6→B6, F#6→C#7), rastgele sağ-sol */
+    let t = at + 0.35;
+    while (t < until - 0.15) {
+      const smp = r() < 0.5 ? this.sPingE : this.sPingF;
+      const pan = (r() < 0.5 ? -1 : 1) * (0.45 + r() * 0.5);
+      const vol = 0.05 + r() * 0.045 + 0.03 * inv(12, 25, t);
+      this._mix(L, smp, t, vol * 1.4, pan);
+      t += t < 12.5 ? 0.9 + r() * 1.1 : 0.32 + r() * 0.6;
+    }
+    this._layerOut(L, this.crowdIn);
+    /* soğuk floresan uğultusu */
+    const hum = c.createGain(); hum.gain.setValueAtTime(0, at); hum.gain.linearRampToValueAtTime(0.035, at + 1.5);
+    hum.connect(this._out(0, 1, 0, this.crowdIn));
+    [60, 120, 180].forEach((f, k) => { const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f; const g = c.createGain(); g.gain.value = [0.6, 0.35, 0.12][k]; o.connect(g); g.connect(hum); o.start(at); o.stop(until + 0.5); });
+    const hiss = c.createBiquadFilter(); hiss.type = 'bandpass'; hiss.frequency.value = 7000; hiss.Q.value = 0.6;
+    const hn = this._play(this.noise, at, 0.012, 1, hiss, 0);
+    hn.s.loop = true; hn.s.stop(until + 0.5);
+    hiss.connect(this._out(0.1, 1, 0, this.crowdIn));
+  }
+
+  /* Hüzünlü solo çello bası: C2 = 65.4 Hz, detune sawtooth + LFO vibrato + 240 Hz LPF */
+  startCelloDrone(at, until, swells) {
+    const c = this.ctx;
+    const voice = (freq, t0, t1, lpf, levels, pan) => {
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = lpf; lp.Q.value = 1.1;
+      const body = c.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = freq * 3; body.gain.value = 5; body.Q.value = 1.2;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, t0);
+      for (const [tt, v] of levels) g.gain.linearRampToValueAtTime(v, tt);
+      g.gain.linearRampToValueAtTime(0, t1);
+      const lfo = c.createOscillator(); lfo.frequency.value = 4.8;
+      const lfoG = c.createGain(); lfoG.gain.value = freq * 0.006;
+      lfo.connect(lfoG);
+      [-5, 5, 0].forEach((cents, k) => {
+        const o = c.createOscillator(); o.type = k === 2 ? 'triangle' : 'sawtooth';
+        o.frequency.value = freq; o.detune.value = cents;
+        lfoG.connect(o.frequency);
+        const og = c.createGain(); og.gain.value = k === 2 ? 0.5 : 0.36;
+        o.connect(og); og.connect(lp);
+        o.start(t0); o.stop(t1 + 0.1);
+      });
+      lfo.start(t0); lfo.stop(t1 + 0.1);
+      lp.connect(body); body.connect(g);
+      g.connect(this._out(pan, 1, 0, this.crowdIn));
+      /* yay hışırtısı */
+      const bn = c.createBiquadFilter(); bn.type = 'bandpass'; bn.frequency.value = 420; bn.Q.value = 1.4;
+      const nb = this._play(this.noise, t0, 0.015, 1, bn, 0.3);
+      nb.s.loop = true; nb.s.stop(t1);
+      bn.connect(g);
+    };
+    voice(NOTE.C2, at, until, 240, swells || [[at + 2.6, 0.26], [9.0, 0.24], [10.4, 0.34], [13, 0.28], [19.5, 0.4], [24, 0.32], [26.8, 0.3]], 0);
+    voice(NOTE.G2, 12.2, until, 300, [[14.5, 0.12], [20, 0.16], [26.8, 0.14]], -0.2);
+    voice(NOTE.Eb3, 20.4, until, 560, [[22.5, 0.1], [26.8, 0.1]], 0.25);
+  }
+
+  /* ========================== FOLEY & DUYGU =========================== */
+  /* Narin ahşap flüt / arp armoniği */
+  playBirdLaunch(at, pitchOffset, pan, big) {
+    const c = this.ctx;
+    const notes = big ? [NOTE.C5, NOTE.Eb5, NOTE.G5, NOTE.C6] : [NOTE.G4, NOTE.C5];
+    /* arp çekişi */
+    const pluck = (f, t, v) => {
+      [1, 2, 3, 4.02].forEach((h, k) => {
+        const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = semi(f, pitchOffset) * h;
+        const g = c.createGain();
+        const vv = v * [1, 0.32, 0.12, 0.05][k];
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vv, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0003, t + 1.6 - k * 0.3);
+        o.connect(g); g.connect(this._out(pan, 0.7, 0.5)); o.start(t); o.stop(t + 1.7);
+      });
+    };
+    /* ahşap flüt */
+    const flute = (f, t, d, v) => {
+      const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = semi(f, pitchOffset);
+      const o3 = c.createOscillator(); o3.type = 'sine'; o3.frequency.value = semi(f, pitchOffset) * 3;
+      const vib = c.createOscillator(); vib.frequency.value = 5.4;
+      const vg = c.createGain(); vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(semi(f, pitchOffset) * 0.008, t + d * 0.6);
+      vib.connect(vg); vg.connect(o.frequency);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + 0.06); g.gain.setValueAtTime(v * 0.85, t + d * 0.7); g.gain.linearRampToValueAtTime(0, t + d);
+      const g3 = c.createGain(); g3.gain.value = 0.06;
+      o.connect(g); o3.connect(g3); g3.connect(g);
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = semi(f, pitchOffset); bp.Q.value = 18;
+      const br = this._play(this.noise, t, 0, 1, bp, this.rng());
+      br.g.gain.setValueAtTime(0, t); br.g.gain.linearRampToValueAtTime(v * 1.6, t + 0.04); br.g.gain.linearRampToValueAtTime(0, t + d);
+      bp.connect(g);
+      g.connect(this._out(pan, 0.8, 0.45));
+      o.start(t); o3.start(t); vib.start(t); o.stop(t + d + 0.05); o3.stop(t + d + 0.05); vib.stop(t + d + 0.05);
+    };
+    if (big) {
+      pluck(NOTE.G4, at - 0.04, 0.14);
+      notes.forEach((f, k) => flute(f, at + k * 0.17, k === notes.length - 1 ? 1.1 : 0.3, 0.07));
+      /* sıcak kuş fısıltısı */
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 1.2;
+      const w = this._play(this.pink, at - 0.15, 0, 1, bp, 0.5);
+      w.g.gain.setValueAtTime(0, at - 0.15); w.g.gain.linearRampToValueAtTime(0.06, at + 0.15); w.g.gain.linearRampToValueAtTime(0, at + 0.9);
+      bp.connect(this._out(pan, 1, 0.3));
+    } else {
+      pluck(notes[0], at - 0.02, 0.1);
+      flute(notes[0], at, 0.16, 0.06);
+      flute(notes[1], at + 0.12, 0.36, 0.055);
+    }
+  }
+
+  /* 95 Hz tok darbe + 0.25 sn kuru kağıt buruşması */
+  playBirdImpactAndCrumple(at, pan, vol) {
+    const c = this.ctx, v = vol === undefined ? 1 : vol;
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(150, at); o.frequency.exponentialRampToValueAtTime(95, at + 0.03); o.frequency.exponentialRampToValueAtTime(55, at + 0.2);
+    const g = c.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.55 * v, at + 0.004); g.gain.exponentialRampToValueAtTime(0.0005, at + 0.28);
+    o.connect(g); g.connect(this._out(pan * 0.5, 1, 0.12)); o.start(at); o.stop(at + 0.3);
+    const crumple = this.crumples[Math.floor(this.rng() * 3)];
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+    hp.connect(this._out(pan, 1, 0.15));
+    this._play(crumple, at + 0.005, 0.5 * v, 0.92 + this.rng() * 0.16, hp);
+  }
+
+  playPaperTick(at, pan, vol) {
+    this._mix(this.foley, this.sTicks[Math.floor(this.rng() * 4)], at, vol, pan, 0.8 + this.rng() * 0.5);
+  }
+
+  playWindSlide(at, dur) {
+    const c = this.ctx;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.1;
+    bp.frequency.setValueAtTime(320, at); bp.frequency.linearRampToValueAtTime(760, at + dur * 0.55); bp.frequency.linearRampToValueAtTime(380, at + dur);
+    const p = c.createStereoPanner(); p.pan.setValueAtTime(-0.3, at); p.pan.linearRampToValueAtTime(0.55, at + dur);
+    const g = c.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.22, at + dur * 0.4); g.gain.linearRampToValueAtTime(0, at + dur);
+    const n = this._play(this.pink, at, 1, 1, bp, 0.2);
+    n.s.stop(at + dur + 0.1);
+    bp.connect(g); g.connect(p); p.connect(this.crowdIn);
+  }
+
+  /* 27. saniye: tüm kalabalık ve çello 0.35 sn'de derin vakumla susar */
+  cutToVacuumSilence(at, duration) {
+    const fq = this.crowdFilter.frequency, cg = this.crowdGain.gain, rg = this.crowdRevGain.gain;
+    fq.setValueAtTime(18000, at); fq.exponentialRampToValueAtTime(70, at + 0.35);
+    cg.setValueAtTime(1, at); cg.linearRampToValueAtTime(0, at + 0.35);
+    rg.setValueAtTime(1, at); rg.linearRampToValueAtTime(0, at + 0.3);
+    const rr = this.revReturn.gain;
+    rr.setValueAtTime(0.85, at); rr.linearRampToValueAtTime(0.0, at + 0.4);
+    rr.setValueAtTime(0.0, at + duration - 0.05); rr.linearRampToValueAtTime(0.85, at + duration + 0.25);
+    /* tek bir derin nefes */
+    this.playDeepBreath(at + 0.55, 1.15);
+  }
+
+  playDeepBreath(at, dur) {
+    const c = this.ctx;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.9;
+    bp.frequency.setValueAtTime(480, at); bp.frequency.linearRampToValueAtTime(950, at + dur * 0.45); bp.frequency.linearRampToValueAtTime(420, at + dur);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.42, at + dur * 0.45); g.gain.linearRampToValueAtTime(0.12, at + dur * 0.55); g.gain.linearRampToValueAtTime(0.3, at + dur * 0.7); g.gain.linearRampToValueAtTime(0, at + dur);
+    const n = this._play(this.pink, at, 1, 1, bp, 0.9);
+    n.s.stop(at + dur + 0.05);
+    bp.connect(lp); lp.connect(g); g.connect(this._out(0, 1, 0));
+  }
+
+  /* 29–33. sn: ince, sıcak, organik kağıt açılma hışırtısı */
+  playPaperUnfold(at, pan) {
+    const c = this.ctx;
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 350;
+    const shelf = c.createBiquadFilter(); shelf.type = 'highshelf'; shelf.frequency.value = 6000; shelf.gain.value = -6;
+    hp.connect(shelf); shelf.connect(this._out(pan || 0, 1, 0.25));
+    this._play(this.unfold, at, 0.42, 0.9, hp);
+    this._play(this.unfold, at + 0.18, 0.18, 1.15, hp);
+  }
+
+  /* Pembe gürültü, 420→850 Hz süzülen yumuşak nefes filtresi */
+  playWarmBreath(at, dur) {
+    const c = this.ctx; dur = dur || 2.1;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.85;
+    bp.frequency.setValueAtTime(420, at); bp.frequency.exponentialRampToValueAtTime(850, at + dur * 0.6); bp.frequency.exponentialRampToValueAtTime(520, at + dur);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.32, at + 0.35); g.gain.linearRampToValueAtTime(0.24, at + dur * 0.7); g.gain.linearRampToValueAtTime(0, at + dur);
+    const n = this._play(this.pink, at, 1, 0.95, bp, 0.2);
+    n.s.stop(at + dur + 0.05);
+    bp.connect(lp); lp.connect(g); g.connect(this._out(0, 1, 0.3));
+    /* nefesin içindeki sıcak gövde */
+    const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = 110;
+    const og = c.createGain(); og.gain.setValueAtTime(0, at); og.gain.linearRampToValueAtTime(0.03, at + 0.5); og.gain.linearRampToValueAtTime(0, at + dur);
+    o.connect(og); og.connect(this._out(0, 1, 0.2)); o.start(at); o.stop(at + dur);
+  }
+
+  /* Katedral yankılı cam gibi temiz piyano / çelesta notası */
+  playCelestaNote(at, freq, vol, pan) {
+    const c = this.ctx;
+    const out = this._out(pan || 0, 0.55, 1.15);
+    [[1, 1, 3.2], [2.0, 0.22, 1.8], [3.0, 0.07, 1.2], [4.16, 0.09, 0.9], [5.43, 0.035, 0.6], [0.5, 0.06, 2.6]].forEach(([h, v, dec]) => {
+      const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = freq * h;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(vol * v, at + 0.003); g.gain.exponentialRampToValueAtTime(0.00025, at + dec);
+      o.connect(g); g.connect(out); o.start(at); o.stop(at + dec + 0.05);
+    });
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3500;
+    hp.connect(out);
+    const n = this._play(this.noise, at, 0, 1, hp, this.rng(), 0.02);
+    n.g.gain.setValueAtTime(0, at); n.g.gain.linearRampToValueAtTime(vol * 0.08, at + 0.001); n.g.gain.exponentialRampToValueAtTime(0.0002, at + 0.018);
+  }
+
+  playRoomTone(at, until) {
+    const c = this.ctx;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320;
+    const g = c.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.05, at + 1.5); g.gain.setValueAtTime(0.05, until - 1); g.gain.linearRampToValueAtTime(0, until);
+    const n = this._play(this.brown, at, 1, 1, lp, 0);
+    n.s.loop = true; n.s.stop(until + 0.1);
+    lp.connect(g); g.connect(this._out(0, 1, 0.2));
+  }
+
+  playGlassShimmer(at, dur) {
+    const c = this.ctx;
+    [NOTE.E6, NOTE.G6, NOTE.B6, NOTE.D7].forEach((f, k) => {
+      const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+      const trem = c.createOscillator(); trem.frequency.value = 6 + k * 1.3;
+      const tg = c.createGain(); tg.gain.value = 0.4;
+      const g = c.createGain();
+      const t0 = at + k * 0.12;
+      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.018, t0 + 0.25); g.gain.linearRampToValueAtTime(0, t0 + dur);
+      trem.connect(tg); tg.connect(g.gain);
+      o.connect(g); g.connect(this._out((k - 1.5) * 0.4, 0.4, 1.0));
+      o.start(t0); trem.start(t0); o.stop(t0 + dur + 0.1); trem.stop(t0 + dur + 0.1);
+    });
+  }
+
+  playRiser(at, dur) {
+    const c = this.ctx;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 2.2;
+    bp.frequency.setValueAtTime(220, at); bp.frequency.exponentialRampToValueAtTime(3800, at + dur);
+    const g = c.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.22, at + dur * 0.92); g.gain.linearRampToValueAtTime(0, at + dur + 0.04);
+    const n = this._play(this.pink, at, 1, 1, bp, 1.1);
+    n.s.stop(at + dur + 0.1);
+    bp.connect(g); g.connect(this._out(0, 0.8, 0.6));
+  }
+
+  playFlap(at, pan, vol, rate) {
+    this._mix(this.flock, this.sFlaps[Math.floor(this.rng() * 3)], at, vol, pan, rate || 1);
+  }
+
+  /* ========= EN ÖNEMLİ KISIM: alevlenme + vokal formant koro ========= */
+  playFlockIgnitionAndChoir(at, flock) {
+    const c = this.ctx, r = this.rng;
+    const END = 49.3;
+
+    /* alevlenme "vuum"u */
+    const sub = c.createOscillator(); sub.type = 'sine';
+    sub.frequency.setValueAtTime(62, at); sub.frequency.exponentialRampToValueAtTime(38, at + 1.4);
+    const sg = c.createGain(); sg.gain.setValueAtTime(0, at); sg.gain.linearRampToValueAtTime(0.5, at + 0.04); sg.gain.exponentialRampToValueAtTime(0.0005, at + 1.8);
+    sub.connect(sg); sg.connect(this._out(0, 1, 0.2)); sub.start(at); sub.stop(at + 1.9);
+    const wb = c.createBiquadFilter(); wb.type = 'bandpass'; wb.Q.value = 0.8;
+    wb.frequency.setValueAtTime(600, at); wb.frequency.exponentialRampToValueAtTime(2600, at + 1.2);
+    const wn = this._play(this.pink, at, 0, 1, wb, 0.4);
+    wn.g.gain.setValueAtTime(0, at); wn.g.gain.linearRampToValueAtTime(0.32, at + 0.05); wn.g.gain.exponentialRampToValueAtTime(0.001, at + 2.4);
+    wn.s.stop(at + 2.5);
+    wb.connect(this._out(0, 0.7, 0.9));
+
+    /* ---- vokal formant koro: Cm9 → Abmaj7 → Ebmaj9 → Cmaj9 (Pikardi) ---- */
+    const chords = [
+      { t: at - 0.35, n: [NOTE.Eb4, NOTE.G4, NOTE.Bb4, NOTE.D5] },
+      { t: 39.6, n: [NOTE.Eb4, NOTE.G4, NOTE.C5, NOTE.Eb5] },
+      { t: 41.75, n: [NOTE.F4, NOTE.G4, NOTE.Bb4, NOTE.D5] },
+      { t: 44.0, n: [NOTE.E4, NOTE.G4, NOTE.B4, NOTE.D5] },
+    ];
+    const bass = [[at - 0.35, NOTE.C2], [39.6, semi(NOTE.Ab2, -12)], [41.75, NOTE.Eb2], [44.0, NOTE.C2]];
+    const AH = [700, 1150, 2650], OOH = [380, 900, 2450];
+    const formants = [[1.0, 6], [0.5, 9], [0.22, 12]];
+    const voicePans = [-0.55, -0.18, 0.2, 0.55];
+
+    const choirBus = c.createGain();
+    choirBus.gain.setValueAtTime(0, at - 0.6);
+    choirBus.gain.linearRampToValueAtTime(0.05, at - 0.05);
+    choirBus.gain.linearRampToValueAtTime(0.34, at + 0.9);
+    choirBus.gain.setValueAtTime(0.34, 43.6);
+    choirBus.gain.linearRampToValueAtTime(0.42, 44.6);
+    choirBus.gain.setValueAtTime(0.42, END - 1.2);
+    choirBus.gain.linearRampToValueAtTime(0, END + 0.35);
+    const choirDry = c.createGain(); choirDry.gain.value = 0.55;
+    const choirWet = c.createGain(); choirWet.gain.value = 1.1;
+    choirBus.connect(choirDry); choirDry.connect(this.dry);
+    choirBus.connect(choirWet); choirWet.connect(this.revSend);
+
+    for (let v = 0; v < 4; v++) {
+      const vg = c.createGain(); vg.gain.value = 1;
+      const pan = c.createStereoPanner(); pan.pan.value = voicePans[v];
+      vg.connect(pan); pan.connect(choirBus);
+      const fbank = formants.map(([gain, Q], fi) => {
+        const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = Q;
+        const f0 = OOH[fi] * (1 + v * 0.03), f1 = AH[fi] * (1 + v * 0.03);
+        bp.frequency.setValueAtTime(f0, at - 0.6);
+        bp.frequency.linearRampToValueAtTime(f1, at + 1.0);
+        bp.frequency.setValueAtTime(f1, 46.4);
+        bp.frequency.linearRampToValueAtTime(f0, END + 0.3);
+        const g = c.createGain(); g.gain.value = gain;
+        bp.connect(g); g.connect(vg);
+        return bp;
+      });
+      const src = c.createGain(); src.gain.value = 0.5;
+      fbank.forEach((bp) => src.connect(bp));
+      const vib = c.createOscillator(); vib.frequency.value = 5.0 + v * 0.23;
+      const vibG = c.createGain();
+      vibG.gain.setValueAtTime(0, at); vibG.gain.linearRampToValueAtTime(1, at + 1.2);
+      vib.connect(vibG);
+      [-8, 0, 7].forEach((cents) => {
+        const o = c.createOscillator(); o.type = 'sawtooth';
+        o.detune.value = cents + (r() - 0.5) * 4;
+        o.frequency.setValueAtTime(chords[0].n[v], at - 0.6);
+        for (let k = 1; k < chords.length; k++) {
+          o.frequency.setValueAtTime(chords[k - 1].n[v], chords[k].t - 0.12);
+          o.frequency.linearRampToValueAtTime(chords[k].n[v], chords[k].t + 0.16);
+        }
+        const dg = c.createGain(); dg.gain.value = 16; /* vibrato derinliği (cent) */
+        vibG.connect(dg); dg.connect(o.detune);
+        o.connect(src);
+        o.start(at - 0.6); o.stop(END + 0.6);
+      });
+      vib.start(at - 0.6); vib.stop(END + 0.6);
+      /* nefesli soluk */
+      const bn = this._play(this.pink, at - 0.6, 0.06, 1, src, r());
+      bn.s.loop = true; bn.s.stop(END + 0.5);
+    }
+
+    /* sıcak üflemeli pad + bas */
+    const pad = c.createGain();
+    pad.gain.setValueAtTime(0, at - 0.3); pad.gain.linearRampToValueAtTime(0.16, at + 1.6);
+    pad.gain.setValueAtTime(0.16, END - 1.0); pad.gain.linearRampToValueAtTime(0, END + 0.4);
+    const padLP = c.createBiquadFilter(); padLP.type = 'lowpass'; padLP.frequency.value = 1500;
+    pad.connect(padLP); padLP.connect(this._out(0, 0.7, 0.8));
+    for (let v = 0; v < 4; v++) {
+      const o = c.createOscillator(); o.type = 'triangle';
+      o.frequency.setValueAtTime(chords[0].n[v] / 2, at - 0.3);
+      for (let k = 1; k < chords.length; k++) {
+        o.frequency.setValueAtTime(chords[k - 1].n[v] / 2, chords[k].t - 0.1);
+        o.frequency.linearRampToValueAtTime(chords[k].n[v] / 2, chords[k].t + 0.2);
+      }
+      o.detune.value = (v - 1.5) * 4;
+      const g = c.createGain(); g.gain.value = 0.25;
+      o.connect(g); g.connect(pad); o.start(at - 0.3); o.stop(END + 0.5);
+    }
+    const bassG = c.createGain();
+    bassG.gain.setValueAtTime(0, at - 0.3); bassG.gain.linearRampToValueAtTime(0.3, at + 0.6);
+    bassG.gain.setValueAtTime(0.3, END - 1.0); bassG.gain.linearRampToValueAtTime(0, END + 0.5);
+    const bassLP = c.createBiquadFilter(); bassLP.type = 'lowpass'; bassLP.frequency.value = 420;
+    bassG.connect(bassLP); bassLP.connect(this._out(0, 1, 0.25));
+    [0, 12].forEach((oct, k) => {
+      const o = c.createOscillator(); o.type = k ? 'sine' : 'triangle';
+      o.frequency.setValueAtTime(semi(bass[0][1], oct), at - 0.3);
+      for (let i = 1; i < bass.length; i++) {
+        o.frequency.setValueAtTime(semi(bass[i - 1][1], oct), bass[i][0] - 0.1);
+        o.frequency.linearRampToValueAtTime(semi(bass[i][1], oct), bass[i][0] + 0.15);
+      }
+      const g = c.createGain(); g.gain.value = k ? 0.5 : 0.7;
+      o.connect(g); g.connect(bassG); o.start(at - 0.3); o.stop(END + 0.6);
+    });
+
+    /* final: sıcak çello C majör'e döner */
+    const cel = c.createGain();
+    cel.gain.setValueAtTime(0, 43.8); cel.gain.linearRampToValueAtTime(0.16, 45.2); cel.gain.setValueAtTime(0.16, END - 0.8); cel.gain.linearRampToValueAtTime(0, END + 0.4);
+    const celLP = c.createBiquadFilter(); celLP.type = 'lowpass'; celLP.frequency.value = 520;
+    cel.connect(celLP); celLP.connect(this._out(-0.15, 0.8, 0.6));
+    [NOTE.C3, NOTE.G3, NOTE.E4 / 2].forEach((f) => {
+      const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+      const lf = c.createOscillator(); lf.frequency.value = 4.7; const lg = c.createGain(); lg.gain.value = f * 0.005;
+      lf.connect(lg); lg.connect(o.frequency);
+      const g = c.createGain(); g.gain.value = 0.3;
+      o.connect(g); g.connect(cel); o.start(43.8); lf.start(43.8); o.stop(END + 0.5); lf.stop(END + 0.5);
+    });
+
+    /* yüzlerce kağıt kanadın pırpır stereo uğultusu (sağdan sola) */
+    const whoosh = c.createBiquadFilter(); whoosh.type = 'bandpass'; whoosh.frequency.value = 950; whoosh.Q.value = 0.6;
+    const wp = c.createStereoPanner(); wp.pan.setValueAtTime(0.85, at); wp.pan.linearRampToValueAtTime(-0.85, at + 6.5);
+    const wg = c.createGain(); wg.gain.setValueAtTime(0, at); wg.gain.linearRampToValueAtTime(0.2, at + 1.2); wg.gain.linearRampToValueAtTime(0.11, 43); wg.gain.linearRampToValueAtTime(0, 47.5);
+    const am = c.createOscillator(); am.frequency.value = 11; const amg = c.createGain(); amg.gain.value = 0.07;
+    am.connect(amg); amg.connect(wg.gain); am.start(at); am.stop(47.6);
+    const wn2 = this._play(this.pink, at, 1, 1, whoosh, 0.7);
+    wn2.s.loop = true; wn2.s.stop(47.6);
+    whoosh.connect(wg); wg.connect(wp); wp.connect(this.dry);
+    for (const b of flock) {
+      const rate = 2.2 + r() * 0.8;
+      const n = 3 + Math.floor(r() * 3);
+      for (let k = 0; k < n; k++) {
+        const tt = b.t + k / rate + r() * 0.02;
+        if (tt > 47.4) break;
+        this.playFlap(tt, clamp((b.x - 540) / 520, -1, 1) * (1 - k * 0.12), 0.05 * (1 - k * 0.14), 0.85 + r() * 0.5);
+      }
+    }
+
+    /* kristal kıvılcımlar: Cmaj9 arpejleri */
+    const sparkle = [NOTE.E5, NOTE.G5, NOTE.B5, NOTE.D6, NOTE.G5, NOTE.E6, NOTE.B5, NOTE.D6];
+    sparkle.forEach((f, k) => this.playCelestaNote(44.05 + k * 0.42 + r() * 0.06, f, 0.12 - k * 0.008, (r() - 0.5) * 0.9));
+    [NOTE.Eb5, NOTE.G5, NOTE.D6].forEach((f, k) => this.playCelestaNote(at + 0.25 + k * 0.6, f, 0.07, (r() - 0.5) * 0.8));
+  }
+
+  /* ============================ KOMPOZİSYON ============================ */
+  _compose(S) {
+    const r = this.rng;
+    this._makeCrowdSamples();
+    this.foley = this._layer();
+    this.flock = this._layer();
+    this.startCrowdAmbience(0, 27.4);
+    this.startCelloDrone(0, 27.6);
+
+    /* kahraman kuş: 5.8 */
+    this.playBirdLaunch(5.8, 0, -0.1, true);
+    /* süzülürken umut: yumuşak flüt nefesi */
+    this.playBirdLaunch(7.35, -5, -0.35, false);
+    this.playBirdImpactAndCrumple(9.2, -0.55, 1.25);
+    this.playPaperTick(10.5, -0.15, 0.4);
+
+    /* ağızdan fırlayan kuşlar */
+    const offs = [0, -2, 1, -3, -1, -5, -4, -7];
+    S.mouthBirds.forEach((b, k) => {
+      this.playBirdLaunch(b.tLaunch, offs[k % offs.length], clamp((b.p0[0] - 540) / 400, -1, 1) * 0.4, false);
+      this.playBirdImpactAndCrumple(b.tHit, clamp((b.pHit[0] - 540) / 420, -1, 1), 0.85 - k * 0.03);
+      this.playPaperTick(b.tLand, clamp((b.xLand - 540) / 450, -1, 1), 0.28);
+    });
+    /* kül yağmuru: her iniş yumuşak bir kağıt sesi */
+    S.rainBirds.forEach((b) => {
+      if (b.tLand < 27) this.playPaperTick(b.tLand, clamp((b.xLand - 540) / 450, -1, 1), 0.06 + r() * 0.08);
+    });
+
+    /* 23.0 rüzgâr; kuş yerde yuvarlanır */
+    this.playWindSlide(22.9, 4.0);
+    S.slideTicks.forEach(([tt, x]) => this.playPaperTick(tt, clamp((x - 540) / 400, -1, 1), 0.16));
+    this.playPaperTick(26.8, 0.45, 0.26);
+
+    /* 27.0: ateşleyici sebep — vakum sessizliği */
+    this.cutToVacuumSilence(27.0, 1.8);
+
+    /* 28.8 – 37.0: makro şefkat */
+    this.playRoomTone(28.8, 37.4);
+    this.playPaperUnfold(29.4, -0.3);
+    this.playCelestaNote(30.25, 392.0, 0.25, -0.15);
+    this.playPaperUnfold(31.2, 0.3);
+    this.playCelestaNote(32.05, 493.88, 0.25, 0.15);
+    this.playWarmBreath(33.5, 2.2);
+    this.playCelestaNote(34.6, 587.33, 0.35, 0);
+    this.playGlassShimmer(34.7, 1.8);
+    this.playFlap(35.85, 0, 0.12, 0.9);
+    this.playFlap(36.18, 0.05, 0.14, 1.0);
+    this.playFlap(36.45, -0.05, 0.16, 1.05);
+    this.playFlap(36.68, 0, 0.18, 1.1);
+    this.playRiser(35.9, 1.58);
+
+    /* 37.5: zincirleme alevlenme + koro */
+    this.playFlockIgnitionAndChoir(37.5, S.flock);
+
+    this._layerOut(this.foley, null, 1, 0.1);
+    this._layerOut(this.flock, null, 1, 0.25);
+
+    /* final kararma */
+    const mg = this.master.gain;
+    mg.setValueAtTime(0.85, 48.9);
+    mg.linearRampToValueAtTime(0.0, 50.0);
+  }
+
+  /* ======================= CANLI OYNATMA (UI) ======================= */
+  ensureLive() {
+    if (!this.live) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.live = new AC({ latencyHint: 'interactive' });
+      this.liveGain = this.live.createGain();
+      this.liveGain.connect(this.live.destination);
+    }
+    if (this.live.state === 'suspended') this.live.resume();
+    return this.live;
+  }
+
+  play(offset) {
+    this.stopAll();
+    if (!this.buffer || !this.live) return;
+    const s = this.live.createBufferSource();
+    s.buffer = this.buffer;
+    s.connect(this.liveGain);
+    s.start(this.live.currentTime + 0.01, clamp(offset, 0, this.duration));
+    this.src = s;
+    this.startCtxTime = this.live.currentTime + 0.01;
+    this.startOffset = offset;
+  }
+
+  currentTime() {
+    if (!this.live || !this.src) return null;
+    return this.startOffset + Math.max(0, this.live.currentTime - this.startCtxTime);
+  }
+
+  stopAll() {
+    if (this.src) {
+      try { this.src.stop(); } catch (e) { /* zaten durmuş */ }
+      try { this.src.disconnect(); } catch (e) { /* */ }
+      this.src = null;
+    }
+  }
+
+  /* kayıt için 16-bit WAV (base64) */
+  wavBase64() {
+    const b = this.buffer, n = b.length, ch = b.numberOfChannels;
+    const bytes = 44 + n * ch * 2;
+    const ab = new ArrayBuffer(bytes), v = new DataView(ab);
+    const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    ws(0, 'RIFF'); v.setUint32(4, bytes - 8, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true);
+    v.setUint32(24, this.sr, true); v.setUint32(28, this.sr * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true);
+    ws(36, 'data'); v.setUint32(40, n * ch * 2, true);
+    const chans = []; for (let c = 0; c < ch; c++) chans.push(b.getChannelData(c));
+    let o = 44;
+    for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) { v.setInt16(o, clamp(chans[c][i], -1, 1) * 32767, true); o += 2; }
+    const u8 = new Uint8Array(ab);
+    let s = '';
+    const CH = 0x8000;
+    for (let i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+    return btoa(s);
+  }
+}
+
+/* ==========================================================================
+   Rig — prosedürel SVG üretimi (kalabalık, dişliler, şehir, eller, kuşlar)
+   ve her karede parametrelerden sahneye uygulama.
+   ========================================================================== */
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const FRONT_FEET = 1625, BACK_FEET = 1432;
+const WRAP_LO = -460, WRAP_HI = 1540;
+
+/* ------------------------------ Dişli yolu ------------------------------ */
+function gearPath(R, n, depth) {
+  const r0 = R - depth;
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU, w = TAU / n;
+    const pts = [
+      [r0, a], [r0, a + w * 0.18], [R, a + w * 0.3], [R, a + w * 0.62], [r0, a + w * 0.76],
+    ];
+    for (let k = 0; k < pts.length; k++) {
+      const [rr, aa] = pts[k];
+      const x = rr * Math.cos(aa), y = rr * Math.sin(aa);
+      d += (i === 0 && k === 0 ? 'M' : 'L') + f1(x) + ' ' + f1(y) + ' ';
+    }
+  }
+  return d + 'Z';
+}
+
+function gearSVG(R, n, depth, ratio, spokes) {
+  let s = `<g class="gear-spin" data-ratio="${ratio}">`;
+  s += `<path d="${gearPath(R, n, depth)}" fill="url(#gear-metal)" stroke="#141A24" stroke-width="3"/>`;
+  s += `<circle r="${f1(R * 0.62)}" fill="url(#gear-dark)"/>`;
+  for (let k = 0; k < spokes; k++) {
+    const a = (k / spokes) * 360;
+    s += `<rect x="${f1(-R * 0.08)}" y="${f1(-R * 0.6)}" width="${f1(R * 0.16)}" height="${f1(R * 0.6)}" fill="#7F8DA3" transform="rotate(${a})"/>`;
+  }
+  s += `<circle r="${f1(R * 0.24)}" fill="#A9B6C8" stroke="#2A3442" stroke-width="2"/><circle r="${f1(R * 0.09)}" fill="#141A24"/>`;
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * TAU;
+    s += `<circle cx="${f1(Math.cos(a) * R * 0.44)}" cy="${f1(Math.sin(a) * R * 0.44)}" r="${f1(R * 0.035 + 1)}" fill="#1B222E"/>`;
+  }
+  s += `<path d="M${f1(-R * 0.75)} ${f1(-R * 0.3)} A${f1(R * 0.8)} ${f1(R * 0.8)} 0 0 1 ${f1(R * 0.2)} ${f1(-R * 0.78)}" stroke="#E6F4FF" stroke-width="3" fill="none" opacity="0.45" stroke-linecap="round"/>`;
+  return s + '</g>';
+}
+
+/* ----------------------------- Kalabalık figürü ----------------------------- */
+const CF_COAT = 'M-34 -918 C-96 -912 -138 -884 -144 -836 C-150 -760 -128 -690 -120 -620 C-112 -560 -116 -500 -124 -440 L-142 -236 C-60 -222 60 -222 132 -240 L104 -440 C96 -520 92 -580 102 -650 C114 -740 120 -820 100 -866 C84 -902 40 -920 -34 -918 Z';
+const CF_SHADE = 'M-34 -918 C-96 -912 -138 -884 -144 -836 C-150 -760 -128 -690 -120 -620 C-112 -560 -116 -500 -124 -440 L-142 -236 C-110 -230 -80 -228 -50 -228 L-40 -440 C-36 -560 -50 -700 -60 -820 C-62 -880 -50 -910 -34 -918 Z';
+const CF_RIM = 'M100 -866 C120 -820 114 -740 102 -650 C92 -580 96 -520 104 -440 L132 -240';
+const CF_BACKRIM = 'M-144 -836 C-150 -760 -128 -690 -120 -620 C-112 -560 -116 -500 -124 -440 L-142 -236';
+
+function screenHeadSVG(id, rng) {
+  let bars = '';
+  for (let set = 0; set < 2; set++) {
+    for (let i = 0; i < 8; i++) {
+      const w = 60 + Math.floor(rng() * 90), y = -140 + i * 22 + set * 176;
+      const avatar = rng() < 0.3;
+      if (avatar) bars += `<circle cx="-70" cy="${y + 5}" r="7" fill="#E8FDFF" opacity="0.8"/>`;
+      bars += `<rect x="${avatar ? -56 : -76}" y="${y}" width="${w}" height="10" rx="5" fill="${rng() < 0.25 ? '#0A4E64' : '#E8FDFF'}" opacity="${(0.55 + rng() * 0.35).toFixed(2)}"/>`;
+    }
+  }
+  return `<g class="cf-screen-head">
+    <path d="M-16 8 L-12 -26 L16 -26 L20 8 Z" fill="#0B1019"/>
+    <g class="cf-tilt">
+      <rect class="cf-screen-cast" x="-210" y="-250" width="420" height="320" rx="160" fill="url(#screen-cast)"/>
+      <rect x="-100" y="-162" width="200" height="142" rx="16" fill="#131A26" stroke="#2C3747" stroke-width="3"/>
+      <rect class="cf-screen-face" x="-90" y="-152" width="180" height="122" rx="9" fill="url(#screen-grad)" filter="url(#glow-neon-cold)"/>
+      <clipPath id="clip-${id}"><rect x="-88" y="-150" width="176" height="118" rx="8"/></clipPath>
+      <g clip-path="url(#clip-${id})"><g class="cf-scroll">${bars}</g></g>
+      <rect class="cf-screen-off" x="-90" y="-152" width="180" height="122" rx="9" fill="#04070C" opacity="0"/>
+      <path d="M-86 -146 L60 -146" stroke="#FFFFFF" stroke-width="3" opacity="0.25" stroke-linecap="round"/>
+      <circle class="notif-dot" cx="78" cy="-146" r="14" fill="#FF3B5C"/>
+      <circle class="notif-hl" cx="74" cy="-150" r="4" fill="#FFD0D8" opacity="0.85"/>
+    </g>
+  </g>`;
+}
+
+function gearHeadSVG() {
+  return `<g class="cf-gear-head">
+    <path d="M-14 8 L-11 -26 L14 -26 L17 8 Z" fill="#0B1019"/>
+    <g class="cf-tilt">
+      <g transform="translate(-58 -52)">${gearSVG(40, 8, 11, -2.1, 4)}</g>
+      <g transform="translate(78 -70)">${gearSVG(50, 9, 13, -1.6, 5)}</g>
+      <g transform="translate(4 -132)">${gearSVG(88, 14, 17, 1, 6)}</g>
+    </g>
+  </g>`;
+}
+
+function crowdFigureSVG(id, o, rng) {
+  const head = o.type === 'screen' ? screenHeadSVG(id, rng) : gearHeadSVG();
+  return `<g class="crowd-figure" id="${id}" data-type="${o.type}">
+   <g class="cf-pos">
+    <ellipse cx="0" cy="6" rx="${f1(170 * o.s)}" ry="${f1(22 * o.s)}" fill="#01030A" opacity="0.55"/>
+    <g class="cf-scale" transform="scale(${f1(o.facing * o.s * 100) / 100} ${o.s})">
+     <g class="cf-bob">
+      <g class="cf-leg-b"><path d="M-30 -470 L24 -470 L18 -42 L-16 -42 Z" fill="#080C14"/><path d="M-24 -48 L22 -48 C52 -44 72 -32 76 -14 L76 0 L-26 0 Z" fill="#03060B"/></g>
+      <g class="cf-arm-b"><path d="M-40 -880 C-6 -884 22 -866 26 -820 L30 -520 C26 -500 -14 -500 -16 -520 L-34 -830 Z" fill="#0F141E"/><ellipse cx="6" cy="-492" rx="24" ry="30" fill="#080B11"/></g>
+      <g class="cf-leg-f"><path d="M-28 -470 L26 -470 L20 -42 L-14 -42 Z" fill="#0D121C"/><path d="M-22 -48 L24 -48 C54 -44 74 -32 78 -14 L78 0 L-24 0 Z" fill="#05080E"/><path d="M-20 -3 L76 -3" stroke="#2C3E56" stroke-width="3" opacity="0.6"/></g>
+      <path class="cf-coat" d="${CF_COAT}" fill="url(#${o.coat})"/>
+      <path d="${CF_SHADE}" fill="#000" opacity="0.32"/>
+      <path d="M-46 -920 C-34 -966 24 -972 50 -930 L64 -876 C30 -896 -14 -900 -50 -878 Z" fill="#0F151F"/>
+      <path d="M-122 -566 L100 -590 L102 -560 L-118 -536 Z" fill="#141B27"/>
+      <rect x="40" y="-590" width="26" height="30" rx="4" fill="none" stroke="#56677F" stroke-width="3"/>
+      <path d="M72 -860 C80 -700 82 -500 90 -250" stroke="#0B1018" stroke-width="3" fill="none"/>
+      <path d="M18 -470 L92 -478 L94 -458 L20 -450 Z" fill="#141B27"/>
+      <path class="cf-rim" d="${CF_RIM}" stroke="#7FE6F7" stroke-width="5" fill="none" opacity="0.35" stroke-linecap="round"/>
+      <path class="cf-warm-rim" d="${CF_BACKRIM}" stroke="#FFC27A" stroke-width="7" fill="none" opacity="0" stroke-linecap="round"/>
+      <g class="cf-arm-f"><path d="M-40 -880 C-6 -884 22 -866 26 -820 L30 -520 C26 -500 -14 -500 -16 -520 L-34 -830 Z" fill="url(#${o.coat})"/><path d="M-16 -520 C-14 -500 26 -500 30 -520 L31 -540 C20 -530 -6 -530 -17 -540 Z" fill="#0A0E15"/><ellipse cx="7" cy="-492" rx="25" ry="31" fill="#0B1018"/><path d="M26 -820 L30 -540" stroke="#7FE6F7" stroke-width="3" opacity="0.22"/></g>
+      <g class="cf-head" transform="translate(6 -914)">${head}</g>
+     </g>
+    </g>
+   </g>
+  </g>`;
+}
+
+/* ------------------------------ Kahraman kuş ------------------------------ */
+const HERO_NEAT = {
+  wingF: [[-12, -6], [2, -6], [16, -6]],
+  body: [
+    [[-18, -4], [-72, -38], [-38, 8]],
+    [[-38, 0], [42, 0], [0, 18]],
+    [[-38, 0], [0, -15], [42, 0]],
+    [[20, -4], [62, -48], [34, 6]],
+    [[62, -48], [80, -42], [55, -32]],
+  ],
+  wingN: [[-16, -4], [1, -4], [18, -4]],
+};
+const HERO_TONES_BODY = [1, 2, 0, 1, 0];
+
+/* --------------------------- Makro kuş geometrisi --------------------------- */
+const MB = {
+  body: { top: [0, -75], right: [40, 0], bottom: [0, 105], left: [-40, 0], center: [0, 10] },
+  neck: [[-14, -58], [14, -58], [12, -170]],
+  head: [[12, -170], [54, -186], [0, -148]],
+  tail: [[[-24, 64], [0, 96], [-8, 196]], [[24, 64], [0, 96], [-8, 196]]],
+  wingStraight: { B1: [-26, -44], B2: [-38, 26], T1: [-272, -150], T2: [-240, -66], M: [-145, -70] },
+  wingCrumpleL: { B1: [-30, -36], B2: [-34, 24], T1: [-74, 70], T2: [-40, 100], M: [-86, 18] },
+  wingCrumpleR: { B1: [-28, -34], B2: [-38, 22], T1: [-82, 56], T2: [-46, 94], M: [-92, 6] },
+  bodyCrumple: { top: [-6, -34], right: [38, 16], bottom: [12, 72], left: [-42, 12], center: [2, 18], neckTip: [56, -56], headA: [56, -56], headB: [76, -40], headC: [38, -36] },
+};
+const MPAL = {
+  gray: ['#8A93A0', '#6B7280', '#4B5563', '#374151'],
+  ember: ['#FFC062', '#FF9A45', '#FF7B29', '#D9542A'],
+  gold: ['#FFF4D6', '#FFE08A', '#FFC24A', '#F4A261'],
+};
+function macroCol(tone, ig) {
+  if (ig <= 0.5) return mixHex(MPAL.gray[tone], MPAL.ember[tone], ig / 0.5);
+  return mixHex(MPAL.ember[tone], MPAL.gold[tone], (ig - 0.5) / 0.5);
+}
+
+const Rig = {
+  build(story) {
+    this.story = story;
+    const rng = mulberry32(31337);
+    this._buildCity(rng);
+    this._buildCeiling();
+    this._buildPillars();
+    this._buildBeamsAndRays();
+    this._buildFloor();
+    this._buildFarCrowd(rng);
+    this._buildCrowd(rng);
+    this._buildHero();
+    this._buildMacro(rng);
+    this._cache();
+  },
+
+  _buildCity(rng) {
+    let s = '';
+    for (let i = 0; i < 26; i++) {
+      const x = -1000 + i * 125 + rng() * 60, w = 90 + rng() * 140;
+      const top = 260 + rng() * 820;
+      const near = rng();
+      const fill = near > 0.5 ? '#0B1526' : '#0A1220';
+      s += `<rect x="${f1(x)}" y="${f1(top)}" width="${f1(w)}" height="${f1(1420 - top)}" fill="${fill}"/>`;
+      if (rng() < 0.4) s += `<rect x="${f1(x + w * 0.4)}" y="${f1(top - 60 - rng() * 80)}" width="${f1(w * 0.2)}" height="90" fill="${fill}"/>`;
+      const cols = Math.floor(w / 22), rows = Math.floor((1400 - top) / 34);
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const v = rng();
+        if (v < 0.16) s += `<rect x="${f1(x + 8 + c * 22)}" y="${f1(top + 14 + r * 34)}" width="8" height="12" fill="${v < 0.12 ? '#5FD7F0' : '#FFD9A0'}" opacity="${v < 0.12 ? 0.28 : 0.18}"/>`;
+      }
+    }
+    $('bg-city').innerHTML = s;
+  },
+
+  _buildCeiling() {
+    let s = `<rect x="-1500" y="-420" width="4080" height="462" fill="#05080F"/>`;
+    s += `<rect x="-1500" y="30" width="4080" height="16" fill="#111A2A"/>`;
+    for (let x = -1500; x < 2600; x += 120) {
+      s += `<path d="M${x} -40 L${x + 60} 30 L${x + 120} -40" stroke="#1A2638" stroke-width="5" fill="none"/>`;
+    }
+    s += `<rect x="-1500" y="-48" width="4080" height="10" fill="#141F31"/>`;
+    [-380, 20, 360, 700, 1040, 1420].forEach((x) => {
+      s += `<ellipse cx="${x + 100}" cy="62" rx="210" ry="46" fill="url(#screen-cast)" opacity="0.9"/>`;
+      s += `<rect class="tube" x="${x}" y="46" width="200" height="11" rx="5" fill="#E4FBFF"/>`;
+    });
+    $('cold-ceiling').innerHTML = s;
+  },
+
+  _buildPillars() {
+    let s = '';
+    [[-280, 150], [20, 118], [236, 92], [842, 92], [1046, 118], [1330, 150]].forEach(([x, w]) => {
+      s += `<g><rect x="${x}" y="-60" width="${w}" height="1470" fill="url(#pillar-grad)"/>`;
+      s += `<rect x="${x - 10}" y="44" width="${w + 20}" height="26" fill="#0D1524"/>`;
+      s += `<rect x="${x - 12}" y="1370" width="${w + 24}" height="30" fill="#0A111D"/>`;
+      s += `<rect x="${x + w * 0.62}" y="70" width="3" height="1300" fill="#2E4A6A" opacity="0.5"/>`;
+      s += `<rect class="pillar-warm" x="${x}" y="-60" width="${w}" height="1470" fill="url(#pillar-warm)" opacity="0"/></g>`;
+    });
+    $('bg-pillars').innerHTML = s;
+  },
+
+  _buildBeamsAndRays() {
+    let s = '';
+    [[120, 210], [460, 220], [800, 210]].forEach(([x, bw]) => {
+      const cx = x + 100;
+      s += `<path d="M${cx - 70} 58 L${cx + 70} 58 L${cx + bw + 40} 1460 L${cx - bw - 40} 1460 Z" fill="url(#beam-grad)" opacity="0.85"/>`;
+      s += `<ellipse cx="${cx}" cy="1470" rx="${bw + 80}" ry="40" fill="#6FD3EA" opacity="0.07"/>`;
+    });
+    $('cold-beams').innerHTML = s;
+    let r = '';
+    const rays = [[-560, 220], [-260, 260], [60, 300], [380, 340], [720, 300], [1060, 260], [1360, 230], [1660, 210]];
+    rays.forEach(([bx, bw], i) => {
+      const tx = 540 + (bx - 540) * 0.08;
+      r += `<path class="god-ray" data-i="${i}" d="M${tx - 22} -1500 L${tx + 22} -1500 L${bx + bw / 2} 1650 L${bx - bw / 2} 1650 Z" fill="url(#ray-grad)"/>`;
+    });
+    $('warm-god-rays').innerHTML = r;
+  },
+
+  _buildFloor() {
+    let s = '';
+    for (let k = -14; k <= 14; k++) s += `<path d="M${540 + k * 46} 1398 L${540 + k * 520} 2900"/>`;
+    let y = 1410, gap = 12;
+    while (y < 2600) { s += `<path d="M-1500 ${f1(y)} L2580 ${f1(y)}"/>`; y += gap; gap *= 1.32; }
+    $('floor-lines').innerHTML = s;
+    let rf = '';
+    [220, 560, 900].forEach((x) => { rf += `<rect x="${x - 60}" y="1400" width="120" height="420" fill="#38E8FF" opacity="0.05"/>`; });
+    $('floor-reflections').innerHTML = rf;
+  },
+
+  _buildFarCrowd(rng) {
+    let s = '';
+    for (let row = 0; row < 2; row++) {
+      s += `<g class="far-row" data-dir="${row ? -1 : 1}">`;
+      for (let i = 0; i < 40; i++) {
+        const x = -1300 + i * 100 + rng() * 40;
+        const h = 150 + rng() * 50, y = 1404 + row * 10;
+        const w = 34 + rng() * 10;
+        s += `<path d="M${f1(x - w / 2)} ${y} L${f1(x - w / 2 + 4)} ${f1(y - h * 0.78)} Q${f1(x)} ${f1(y - h * 0.86)} ${f1(x + w / 2 - 4)} ${f1(y - h * 0.78)} L${f1(x + w / 2)} ${y} Z" fill="${row ? '#0A111E' : '#0C1524'}"/>`;
+        if (rng() < 0.55) s += `<rect x="${f1(x - 12)}" y="${f1(y - h)}" width="24" height="17" rx="3" fill="#38E8FF" opacity="${(0.35 + rng() * 0.4).toFixed(2)}"/>`;
+        else s += `<circle cx="${f1(x)}" cy="${f1(y - h + 8)}" r="12" fill="#3A4558" stroke="#56647A" stroke-width="2" stroke-dasharray="4 3"/>`;
+      }
+      s += '</g>';
+    }
+    $('far-crowd').innerHTML = s;
+  },
+
+  _buildCrowd(rng) {
+    const S = this.story;
+    let back = '', front = '';
+    S.crowdBack.forEach((o, i) => { back += crowdFigureSVG(`crowd-b${i}`, o, rng); });
+    S.crowdFront.forEach((o, i) => { front += crowdFigureSVG(`crowd-f${i}`, o, rng); });
+    $('layer-crowd-back').innerHTML = back;
+    $('layer-crowd-front').innerHTML = front;
+  },
+
+  _buildHero() {
+    /* buruşuk kağıt topu: her yüzey merkeze yakın, dolgun bir üçgen */
+    const r = mulberry32(555);
+    const cr = [];
+    for (let f = 0; f < 9; f++) {
+      const ca = r() * TAU, cr0 = 4 + r() * 12;
+      const cx = Math.cos(ca) * cr0 * 1.25, cy = Math.sin(ca) * cr0 * 0.8 - 8;
+      const a0 = r() * TAU;
+      for (let k = 0; k < 3; k++) {
+        const a = a0 + k * (TAU / 3) + (r() - 0.5) * 0.9, rad = 12 + r() * 13;
+        cr.push([cx + Math.cos(a) * rad * 1.15, cy + Math.sin(a) * rad * 0.85]);
+      }
+    }
+    this.heroCrumple = cr;
+  },
+
+  _buildMacro(rng) {
+    /* bokeh */
+    let b = '';
+    this.bokeh = [];
+    for (let i = 0; i < 18; i++) {
+      const o = { x: -100 + rng() * 1280, y: -300 + rng() * 2000, r: 26 + rng() * 120, a: 0.12 + rng() * 0.3, p: rng() * TAU };
+      this.bokeh.push(o);
+      b += `<circle cx="${f1(o.x)}" cy="${f1(o.y)}" r="${f1(o.r)}" fill="url(#bokeh-grad)" opacity="${o.a.toFixed(2)}"/>`;
+    }
+    $('macro-bokeh').innerHTML = b;
+
+    /* parmak çizimi: omurga + kalınlık, eklem kırışıkları, tırnak ya da parmak yastığı */
+    const fingerSVG = (f) => {
+      let s = `<path d="${limbPath(f.sp, f.w.map((w) => w + 5))}" fill="#5E3424"/>`;
+      s += `<path d="${limbPath(f.sp, f.w)}" fill="url(#mskin-grad)"/>`;
+      const n = f.sp.length, a = f.sp[n - 2], b = f.sp[n - 1];
+      const ang = Math.atan2(b[1] - a[1], b[0] - a[0]) / DEG;
+      const nx = lerp(a[0], b[0], 0.7), ny = lerp(a[1], b[1], 0.7);
+      if (f.nail) s += `<ellipse cx="${f1(nx)}" cy="${f1(ny)}" rx="${f1(f.w[n - 1] * 0.34)}" ry="${f1(f.w[n - 1] * 0.27)}" fill="#EBC6AA" stroke="#B98468" stroke-width="1.5" transform="rotate(${f1(ang)} ${f1(nx)} ${f1(ny)})"/>`;
+      else s += `<ellipse cx="${f1(nx)}" cy="${f1(ny)}" rx="${f1(f.w[n - 1] * 0.3)}" ry="${f1(f.w[n - 1] * 0.36)}" fill="#F0BE98" opacity="0.55" transform="rotate(${f1(ang)} ${f1(nx)} ${f1(ny)})"/>`;
+      for (let k = 1; k < n - 1; k++) {
+        const p = f.sp[k], q = f.sp[k + 1], o = f.sp[k - 1];
+        const dx = q[0] - o[0], dy = q[1] - o[1], L = Math.hypot(dx, dy) || 1;
+        const px = -dy / L, py = dx / L, hw = f.w[k] * 0.36;
+        for (let j = 0; j < 2; j++) {
+          const off = (j - 0.5) * 6;
+          s += `<path d="M${f1(p[0] - px * hw + dx / L * off)} ${f1(p[1] - py * hw + dy / L * off)} Q${f1(p[0] + dx / L * (off + 4))} ${f1(p[1] + dy / L * (off + 4))} ${f1(p[0] + px * hw + dx / L * off)} ${f1(p[1] + py * hw + dy / L * off)}" stroke="#8E5A40" stroke-width="1.8" fill="none" opacity="0.55"/>`;
+        }
+      }
+      const hl = f.sp.map((p) => [p[0] - (f.hl || 7), p[1]]);
+      s += `<path d="M${f1(hl[0][0])} ${f1(hl[0][1])}${crSegs(hl)}" stroke="#F6CBA6" stroke-width="3" fill="none" opacity="0.4" stroke-linecap="round"/>`;
+      return s;
+    };
+    this.fingerSVG = fingerSVG;
+
+    /* avuç içi + arka parmaklar (kuşun arkasında kalan kısım) */
+    const backFingers = [
+      { sp: [[334, 1336], [330, 1270], [328, 1205], [332, 1150]], w: [50, 46, 42, 36] },
+      { sp: [[386, 1340], [388, 1280], [390, 1222], [394, 1174]], w: [47, 43, 39, 33] },
+      { sp: [[434, 1352], [440, 1302], [446, 1255], [452, 1218]], w: [40, 36, 32, 27] },
+    ];
+    let palm = backFingers.slice().reverse().map(fingerSVG).join('');
+    palm += `<path d="M206 1640 C196 1520 222 1392 262 1338 C300 1322 400 1318 452 1336 C500 1356 534 1404 540 1470 L542 1560 C520 1640 460 1690 400 1700 C320 1712 230 1700 206 1640 Z" fill="url(#mskin-grad)"/>`;
+    palm += `<ellipse cx="400" cy="1470" rx="170" ry="120" fill="url(#palm-hollow)" opacity="0.5"/>`;
+    palm += `<path d="M268 1398 C330 1376 420 1382 500 1420 M262 1430 C320 1416 400 1424 470 1454 M252 1474 C300 1524 360 1562 432 1580" stroke="#7A4A36" stroke-width="2.6" fill="none" opacity="0.5" stroke-linecap="round"/>`;
+    $('macro-palm-l').innerHTML = palm;
+    $('macro-palm-r').innerHTML = palm;
+    $('macro-palm-r').setAttribute('transform', 'translate(1080 0) scale(-1 1)');
+
+    /* el önü: önkol, örgü kol ağzı, avuç topuğu; işaret parmağı ve başparmak canlı */
+    let front = '';
+    front += `<path d="${limbPath([[120, 2080], [190, 1840], [250, 1660]], [190, 175, 165])}" fill="url(#mskin-grad)"/>`;
+    front += `<path d="M206 1588 C240 1650 350 1660 440 1630 C500 1606 532 1560 540 1500 L542 1548 C530 1610 480 1660 420 1684 C320 1716 230 1700 196 1640 Z" fill="url(#mskin-grad)"/>`;
+    front += `<path d="M210 1596 C250 1648 350 1656 440 1626 C496 1604 528 1560 538 1505" stroke="#F6CBA6" stroke-width="4" fill="none" opacity="0.6" stroke-linecap="round"/>`;
+    front += `<path d="M236 1690 C300 1712 380 1704 440 1680" stroke="#8E5A40" stroke-width="2.4" fill="none" opacity="0.45"/>`;
+    front += `<ellipse cx="330" cy="1672" rx="6" ry="4" fill="#7A4630" opacity="0.35"/><ellipse cx="372" cy="1666" rx="4" ry="3" fill="#7A4630" opacity="0.35"/>`;
+    front += `<path d="${limbPath([[50, 2250], [150, 1960], [222, 1790]], [290, 270, 250])}" fill="url(#knit-grad)"/>`;
+    for (let k = 0; k < 9; k++) {
+      const u = k / 8;
+      const x0 = lerp(-60, 110, u), y0 = lerp(2190, 1890, u);
+      front += `<path d="M${f1(x0)} ${f1(y0)} L${f1(x0 + 110)} ${f1(y0 - 200)}" stroke="#1E140F" stroke-width="5" opacity="0.5"/>`;
+    }
+    front += `<path d="M96 1858 C150 1806 220 1780 330 1792" stroke="#5A4232" stroke-width="18" fill="none" stroke-linecap="round" opacity="0.9"/>`;
+    front += `<g class="m-thumb"></g><g class="m-index"></g>`;
+    $('macro-hand-l').innerHTML = front;
+    $('macro-hand-r').innerHTML = front;
+    $('macro-hand-r').setAttribute('transform', 'translate(1080 0) scale(-1 1)');
+
+    /* makro kuş yüzeyleri */
+    const poly = (n, cls) => Array.from({ length: n }, () => `<polygon class="${cls}"/>`).join('');
+    $('macro-wing-l').innerHTML = poly(4, 'mw');
+    $('macro-wing-r').innerHTML = poly(4, 'mw');
+    $('macro-body').innerHTML = poly(9, 'mb');
+    let veins = '';
+    for (let i = 0; i < 10; i++) veins += `<path pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="1"/>`;
+    $('macro-gold-veins').innerHTML = veins;
+    let creases = '';
+    for (let i = 0; i < 10; i++) creases += '<path/>';
+    $('macro-creases').innerHTML = creases;
+    this.macroJit = Array.from({ length: 40 }, () => [(rng() - 0.5) * 26, (rng() - 0.5) * 26]);
+  },
+
+  _cache() {
+    this.el = {
+      camera: $('camera-rig'),
+      crowd: [...document.querySelectorAll('.crowd-figure')].map((g) => ({
+        g, pos: g.querySelector('.cf-pos'), bob: g.querySelector('.cf-bob'),
+        legF: g.querySelector('.cf-leg-f'), legB: g.querySelector('.cf-leg-b'),
+        armF: g.querySelector('.cf-arm-f'), armB: g.querySelector('.cf-arm-b'),
+        gears: [...g.querySelectorAll('.gear-spin')].map((e) => ({ e, ratio: parseFloat(e.dataset.ratio) })),
+        scroll: g.querySelector('.cf-scroll'), dot: g.querySelector('.notif-dot'), dotHl: g.querySelector('.notif-hl'),
+        off: g.querySelector('.cf-screen-off'), cast: g.querySelector('.cf-screen-cast'), face: g.querySelector('.cf-screen-face'),
+        tilt: g.querySelector('.cf-tilt'), rim: g.querySelector('.cf-rim'), warmRim: g.querySelector('.cf-warm-rim'),
+      })),
+      farRows: [...document.querySelectorAll('.far-row')],
+      beams: $('cold-beams'), ceiling: $('cold-ceiling'), tubes: [...document.querySelectorAll('#cold-ceiling .tube')],
+      pillarWarm: [...document.querySelectorAll('.pillar-warm')], floorWarm: $('floor-warm'), sun: $('sky-sun'),
+      rays: [...document.querySelectorAll('.god-ray')],
+      gradeCold: $('grade-cold'), gradeWarm: $('grade-warm'), mound: $('dead-birds-mound'), haze: $('crowd-haze'),
+      p: {
+        body: $('protag-body'), head: $('protag-head'), features: $('protag-features'), hairF: $('protag-hair-front'), ears: $('protag-ears'),
+        armR: $('protag-arm-r'), armL: $('protag-arm-l'), fingers: $('protag-fingers-r'), pupils: $('protag-pupils'),
+        lidL: $('protag-lid-l'), lidR: $('protag-lid-r'), lowL: $('protag-lowlid-l'), lowR: $('protag-lowlid-r'), lashL: $('protag-lash-l'), lashR: $('protag-lash-r'),
+        browL: $('protag-brows-l'), browR: $('protag-brows-r'), mouth: $('protag-mouth'), nose: $('protag-nose'),
+        tear: $('protag-tear'), tearDrop: $('protag-tear-drop'), tearTrail: $('protag-tear-trail'),
+        sparkle: $('protag-eye-sparkle'), sparkleL: $('sparkle-l'), sparkleR: $('sparkle-r'),
+        cold: $('protag-cold-tint'), warm: $('protag-warm-light'), tints: [...document.querySelectorAll('#char-protagonist .tint-part')],
+        warms: [...document.querySelectorAll('#char-protagonist .warm-part')], whole: $('char-protagonist'),
+      },
+      l: {
+        upper: $('listener-upper'), head: $('listener-head'), lid: $('listener-eye-lid'), iris: $('listener-iris'), smile: $('listener-smile'),
+        brow: $('listener-brow'), arm: $('listener-arm'), handsUp: $('listener-hands-up'), shadow: $('listener-shadow'), halo: $('listener-warm-halo'),
+      },
+      hero: {
+        g: $('hero-origami-bird'), glow: $('hero-bird-glow'), shape: $('hero-bird-shape'),
+        wingF: [...$('hero-bird-wing-l').children], body: [...$('hero-bird-body').children], wingN: [...$('hero-bird-wing-r').children],
+        cracks: $('hero-bird-cracks-gold'), crackLines: [...$('hero-bird-cracks-gold').children],
+      },
+      m: {
+        scene: $('macro-hands-scene'), cam: $('macro-cam'), lift: $('macro-lift'), birdWrap: $('macro-bird-wrap'), bird: $('macro-bird'),
+        wingL: [...$('macro-wing-l').children], wingR: [...$('macro-wing-r').children], body: [...$('macro-body').children],
+        veins: [...$('macro-gold-veins').children], creases: [...$('macro-creases').children], veinsG: $('macro-gold-veins'),
+        lips: $('macro-lips'), breath: $('macro-breath-glow'), breathCore: $('macro-breath-core'), shadow: $('macro-bird-shadow'),
+        bokeh: [...$('macro-bokeh').children],
+        idxL: document.querySelector('#macro-hand-l .m-index'), thL: document.querySelector('#macro-hand-l .m-thumb'),
+        idxR: document.querySelector('#macro-hand-r .m-index'), thR: document.querySelector('#macro-hand-r .m-thumb'),
+        handL: $('macro-hand-l'), handR: $('macro-hand-r'),
+      },
+    };
+    this._last = {};
+  },
+
+  /* DOM yazımını azaltan küçük önbellek */
+  _set(el, attr, val) {
+    const k = el.__k || (el.__k = {});
+    if (k[attr] === val) return;
+    k[attr] = val;
+    el.setAttribute(attr, val);
+  },
+
+  /* ============================== KAMERA ============================== */
+  applyCamera(cam, t) {
+    const c = Object.assign({}, cam);
+    c.jx = Math.sin(t * 0.37) * 3 + Math.sin(t * 1.13) * 1.2;
+    c.jy = Math.sin(t * 0.29 + 1) * 2.6 + Math.sin(t * 0.91) * 1.1;
+    c.r = cam.r + Math.sin(t * 0.21) * 0.12;
+    const M = camMatrix(c);
+    /* #camera-rig 540/960 transform-origin'i ile birleşir: X = O^-1 · M · O */
+    const X = [M[0], M[1], M[2], M[3], M[0] * 540 + M[2] * 960 + M[4] - 540, M[1] * 540 + M[3] * 960 + M[5] - 960];
+    this.el.camera.style.transform = `matrix(${X.map((v) => v.toFixed(5)).join(',')})`;
+    return M;
+  },
+
+  /* ============================= KALABALIK ============================= */
+  applyCrowd(t, E) {
+    const Wt = worldClock(t);
+    const S = this.story;
+    const all = S.crowdFront.concat(S.crowdBack);
+    const ids = S.crowdFront.map((_, i) => `f${i}`).concat(S.crowdBack.map((_, i) => `b${i}`));
+    this.el.crowd.forEach((c) => {
+      const key = c.g.id.replace('crowd-', '');
+      const o = all[ids.indexOf(key)];
+      const x = crowdX(o, t);
+      const ph = Wt * o.stepRate * Math.PI + o.phase;
+      const leg = Math.sin(ph) * 8.5;
+      const bob = -Math.abs(Math.cos(ph)) * 7;
+      this._set(c.pos, 'transform', `translate(${f1(x)} ${o.feet})`);
+      this._set(c.bob, 'transform', `translate(0 ${f1(bob)}) rotate(${f1(Math.sin(ph * 2) * 0.6)} 0 -400)`);
+      this._set(c.legF, 'transform', `rotate(${f1(leg)} 0 -470)`);
+      this._set(c.legB, 'transform', `rotate(${f1(-leg)} 0 -470)`);
+      this._set(c.armF, 'transform', `rotate(${f1(-leg * 0.9)} -6 -860)`);
+      this._set(c.armB, 'transform', `rotate(${f1(leg * 0.9)} -6 -860)`);
+      for (const gr of c.gears) this._set(gr.e, 'transform', `rotate(${f1((Wt * 46 * gr.ratio + o.phase * 40) % 360)})`);
+      const warm = E.warm;
+      this._set(c.rim, 'opacity', (0.35 * (1 - warm)).toFixed(3));
+      this._set(c.warmRim, 'opacity', (0.75 * warm).toFixed(3));
+      if (c.scroll) {
+        const sc = (Wt * 34 + o.phase * 50) % 176;
+        this._set(c.scroll, 'transform', `translate(0 ${f1(-sc)})`);
+        const blink = fract(Wt * 0.9 + o.phase) < 0.55 ? 1 : 0.25;
+        const off = E.off[key] || 0;
+        const flick = off > 0 && off < 1 ? (Math.sin(t * 61 + o.phase * 9) > 0 ? 1 : 0.3) : 1;
+        const on = (1 - off) * flick;
+        this._set(c.dot, 'opacity', (blink * on).toFixed(2));
+        this._set(c.dotHl, 'opacity', (0.85 * blink * on).toFixed(2));
+        this._set(c.off, 'opacity', (1 - on * (1 - 0.25 * warm)).toFixed(3));
+        this._set(c.cast, 'opacity', (on * (1 - 0.4 * warm)).toFixed(3));
+        const up = E.look[key] || 0;
+        this._set(c.tilt, 'transform', `rotate(${f1(-5 - up * 24)} 0 -20)`);
+      } else {
+        const up = E.look[key] || 0;
+        this._set(c.tilt, 'transform', `rotate(${f1(-up * 18)} 0 -20)`);
+      }
+    });
+    this.el.farRows.forEach((g, i) => {
+      const dir = i ? -1 : 1;
+      this._set(g, 'transform', `translate(${f1(((Wt * 16 * dir) % 100))} 0)`);
+    });
+  },
+
+  /* ============================== ORTAM ============================== */
+  applyEnv(t, E, pileFrac) {
+    const el = this.el;
+    const flick = 0.92 + 0.08 * Math.sin(t * 2.3) - (fract(t * 0.37) > 0.965 && t < 27 ? 0.35 : 0);
+    this._set(el.beams, 'opacity', (E.beams * flick).toFixed(3));
+    this._set(el.ceiling, 'opacity', E.ceiling.toFixed(3));
+    el.tubes.forEach((tb, i) => this._set(tb, 'opacity', (0.55 + 0.45 * E.beams * (fract(t * 0.53 + i * 0.31) > 0.97 && t < 27 ? 0.3 : 1)).toFixed(2)));
+    el.pillarWarm.forEach((p) => this._set(p, 'opacity', (E.warm * 0.85).toFixed(3)));
+    this._set(el.floorWarm, 'opacity', (E.warm * 0.5).toFixed(3));
+    this._set(el.sun, 'opacity', E.sun.toFixed(3));
+    this._set(el.gradeCold, 'opacity', (0.2 * (1 - E.warm)).toFixed(3));
+    this._set(el.gradeWarm, 'opacity', (0.32 * E.warm).toFixed(3));
+    this._set(el.haze, 'opacity', (1 - 0.6 * E.warm).toFixed(3));
+    el.rays.forEach((r, i) => this._set(r, 'transform', `rotate(${f1(Math.sin(t * 0.35 + i) * 1.6)} 540 -1500)`));
+    const k = clamp(pileFrac, 0, 1) * (1 - E.melt);
+    this._set(el.mound, 'transform', `translate(0 1706) scale(1 ${Math.max(0.001, k * 0.96 + (k > 0 ? 0.04 : 0)).toFixed(4)}) translate(0 -1706)`);
+    this._set(el.mound, 'opacity', (0.95 * (1 - E.melt)).toFixed(3));
+  },
+
+  /* ============================== KAHRAMAN ============================== */
+  applyProtagonist(t, P) {
+    const e = this.el.p;
+    const slow = 3.3 + P.slump * 1.2;
+    const br = Math.sin((t / slow) * TAU);
+    const shiver = P.slump * Math.sin(t * 52) * 0.35 * inv(21, 22.5, t) * (t < 37.5 ? 1 : 0);
+    const sx = 1 - 0.006 * br - 0.03 * P.slump + 0.01 * P.inhale;
+    const sy = 1 + 0.012 * br + 0.035 * P.inhale - 0.045 * P.slump;
+    const sink = P.sink * 18;
+    this._set(e.body, 'transform', `translate(${f1(shiver)} ${f1(sink + P.flinch * 3)}) rotate(${f1(P.lean)} 0 -110) translate(0 -110) scale(${sx.toFixed(4)} ${sy.toFixed(4)}) translate(0 110)`);
+    const headRot = P.headTilt + P.headDown * 16 + P.turn * 4 - P.flinch * 7;
+    const headY = P.headDown * 10 + P.slump * 12 - P.inhale * 3;
+    this._set(e.head, 'transform', `translate(${f1(P.turn * 3)} ${f1(headY)}) rotate(${f1(headRot)} 0 -290)`);
+    const fx = P.turn * 9, fy = P.headDown * 7;
+    this._set(e.features, 'transform', `translate(${f1(fx)} ${f1(fy)})`);
+    this._set(e.hairF, 'transform', `translate(${f1(P.turn * 5)} 0)`);
+    this._set(e.ears, 'transform', `translate(${f1(-P.turn * 4)} 0)`);
+    this._set(e.armR, 'transform', `rotate(${f1(P.armR - P.slump * 4)} -50 -256)`);
+    this._set(e.armL, 'transform', `rotate(${f1(-P.slump * 6 - P.inhale * 2)} 50 -256)`);
+    const open = clamp((P.armR - 20) / 90, 0, 1);
+    this._set(e.fingers, 'transform', `translate(-70 -139) scale(1 ${(0.35 + 0.65 * open).toFixed(3)}) translate(70 139)`);
+
+    /* gözler */
+    const blink = blinkAt(t, this.story.blinksP);
+    const lid = clamp(P.lid + blink * (1 - P.lid), -0.15, 1);
+    const ty = -16 + lid * 30;
+    const sq = Math.max(0, P.smile) * 5;
+    this._set(e.lidL, 'transform', `translate(-21 ${f1(-337 + ty)})`);
+    this._set(e.lidR, 'transform', `translate(21 ${f1(-337 + ty)})`);
+    this._set(e.lowL, 'transform', `translate(-21 ${f1(-337 + 15 - sq)})`);
+    this._set(e.lowR, 'transform', `translate(21 ${f1(-337 + 15 - sq)})`);
+    const lashY = Math.max(ty, -15) - 337;
+    this._set(e.lashL, 'transform', `translate(-21 ${f1(lashY)})`);
+    this._set(e.lashR, 'transform', `translate(21 ${f1(lashY)})`);
+    this._set(e.pupils, 'transform', `translate(${f1(P.lookX * 5.5 + P.turn * 1.5)} ${f1(P.lookY * 4.6)})`);
+
+    /* kaşlar */
+    const iy = -364 - 5 * P.browUp - 8 * P.browSad + 4 * P.browFrown;
+    const oy = -361 - 5 * P.browUp + 3 * P.browSad + 1 * P.browFrown;
+    const cy = (iy + oy) / 2 - 4 + P.browSad * 1.5;
+    const ix = 9 - 2 * P.browFrown;
+    this._set(e.browL, 'd', `M-34 ${f1(oy)} Q-22 ${f1(cy)} ${f1(-ix)} ${f1(iy)}`);
+    this._set(e.browR, 'd', `M34 ${f1(oy)} Q22 ${f1(cy)} ${f1(ix)} ${f1(iy)}`);
+
+    /* ağız */
+    const open2 = P.mouthOpen;
+    const sm = P.smile;
+    const w = 13 + 6 * Math.max(0, sm) + 1.5 * open2 - 2 * Math.max(0, -sm);
+    const cyM = -297 - 6 * sm;
+    const uy = -300 - open2 * 9 + sm * 5;
+    const ly = uy + 2.5 + open2 * 24 + Math.max(0, sm) * 7;
+    this._set(e.mouth, 'd', `M${f1(-w)} ${f1(cyM)} Q0 ${f1(uy)} ${f1(w)} ${f1(cyM)} Q0 ${f1(ly)} ${f1(-w)} ${f1(cyM)}Z`);
+
+    /* gözyaşı */
+    this._set(e.tear, 'opacity', P.tearA.toFixed(3));
+    if (P.tearA > 0.001) {
+      const keys = [[0, -25, -322], [0.35, -31, -308], [0.7, -35, -292], [1, -32, -276]];
+      const p = pathAt(keys, P.tearT);
+      this._set(e.tearDrop, 'transform', `translate(${f1(p[0])} ${f1(p[1])}) scale(${(0.85 + 0.25 * P.tearT).toFixed(3)})`);
+      let d = 'M-25 -322';
+      const steps = Math.max(1, Math.floor(P.tearT * 12));
+      for (let i = 1; i <= steps; i++) { const q = pathAt(keys, (i / steps) * P.tearT); d += ` L${f1(q[0])} ${f1(q[1])}`; }
+      this._set(e.tearTrail, 'd', d);
+    }
+    /* göz bebeklerinde dans eden altın ışık */
+    const sp = P.sparkle * (0.78 + 0.22 * Math.sin(t * 7.3));
+    this._set(e.sparkle, 'opacity', sp.toFixed(3));
+    if (sp > 0.01) {
+      const rot = (t * 70) % 360, s2 = 0.8 + 0.3 * Math.sin(t * 5.1);
+      this._set(e.sparkleL, 'transform', `rotate(${f1(rot)} -19 -336) translate(-19 -336) scale(${s2.toFixed(3)}) translate(19 336)`);
+      this._set(e.sparkleR, 'transform', `rotate(${f1(-rot)} 23 -336) translate(23 -336) scale(${s2.toFixed(3)}) translate(-23 336)`);
+    }
+    /* soğuk / sıcak ışık */
+    this._set(e.cold, 'opacity', (P.cold * 0.62).toFixed(3));
+    e.tints.forEach((x) => this._set(x, 'opacity', ((x.classList.contains('tint-face') ? 0.5 : 0.62) * P.cold).toFixed(3)));
+    this._set(e.warm, 'opacity', (P.warm * 0.85).toFixed(3));
+    e.warms.forEach((x) => this._set(x, 'opacity', (P.warm * 0.55).toFixed(3)));
+  },
+
+  /* ============================== DİNLEYEN ============================== */
+  applyListener(t, L) {
+    const e = this.el.l;
+    const br = Math.sin((t / 4.6) * TAU);
+    this._set(e.upper, 'transform', `rotate(${f1(-L.lean)} 20 -140) translate(0 -140) scale(1 ${(1 + 0.008 * br).toFixed(4)}) translate(0 140)`);
+    this._set(e.head, 'transform', `rotate(${f1(L.headDown * 14 - 4 + Math.sin(t * 0.6) * 0.6)} -20 -345)`);
+    const blink = blinkAt(t, this.story.blinksL);
+    const lid = clamp(L.lid + blink * (1 - L.lid), 0, 1);
+    this._set(e.lid, 'd', `M-62 ${f1(-390 + lid * 3)} Q-52 ${f1(-395 + lid * 7)} -42 ${f1(-390 + lid * 3)}`);
+    this._set(e.iris, 'opacity', (1 - lid * 0.95).toFixed(3));
+    this._set(e.iris, 'transform', `translate(${f1(L.lookX * 2.5)} ${f1(lid * 2)})`);
+    const s = L.smile;
+    this._set(e.smile, 'd', `M-71 ${f1(-333 - s * 4)} Q${f1(-60)} ${f1(-331 + s * 6)} -49 ${f1(-333 - s * 3)}`);
+    this._set(e.brow, 'd', `M-66 ${f1(-400 + L.headDown * 1)} Q-54 ${f1(-408 - s * 1.5)} -40 ${f1(-402 - s * 1)}`);
+    this._set(e.arm, 'transform', `rotate(${f1(-L.armReach * 26)} -50 -300) translate(${f1(-L.armReach * 14)} ${f1(L.armReach * 30)})`);
+    this._set(e.arm, 'opacity', (1 - L.armUp).toFixed(3));
+    this._set(e.handsUp, 'opacity', L.armUp.toFixed(3));
+    this._set(e.shadow, 'opacity', L.shadow.toFixed(3));
+    this._set(e.halo, 'opacity', L.halo.toFixed(3));
+    this._set(e.halo, 'transform', `translate(-40 -250) scale(${L.haloScale.toFixed(4)}) translate(40 250)`);
+  },
+
+  /* ============================ KAHRAMAN KUŞ ============================ */
+  applyHero(h) {
+    const e = this.el.hero;
+    if (!h || !h.vis) { this._set(e.g, 'opacity', '0'); return; }
+    this._set(e.g, 'opacity', (h.alpha === undefined ? 1 : h.alpha).toFixed(3));
+    const rf = (h.rot * h.flip) / DEG;
+    this._set(e.g, 'transform', `translate(${f1(h.x)} ${f1(h.y)}) rotate(${f1(rf)}) scale(${(h.s * h.flip).toFixed(4)} ${h.s.toFixed(4)})`);
+    this._set(e.glow, 'opacity', (h.glow * 0.85).toFixed(3));
+    this._set(e.shape, 'filter', h.glow > 0.25 ? 'url(#glow-ember)' : 'none');
+    const cr = this.heroCrumple;
+    const c = h.c, amp = h.amp, ph = h.phase;
+    const tipF = [-8 + 6 * Math.sin(ph + 0.45), -90 * Math.cos(ph + 0.45) * amp - (1 - amp) * 36];
+    const tipN = [-2 + 6 * Math.sin(ph), -100 * Math.cos(ph) * amp - (1 - amp) * 40];
+    let vi = 0;
+    const P = (q) => { const cv = cr[vi % cr.length]; vi++; return [lerp(q[0], cv[0], c), lerp(q[1], cv[1], c)]; };
+    const col = (tone, fi) => {
+      const g = h.g, au = h.au;
+      const base = mixRgb(PAL_EMBER[tone], PAL_GRAY[(tone + fi) % 4], g);
+      const lit = 1 + 0.16 * g;
+      return rgbStr(mixRgb([Math.min(255, base[0] * lit), Math.min(255, base[1] * lit), Math.min(255, base[2] * lit)], PAL_GOLD[tone], au));
+    };
+    const wf = HERO_NEAT.wingF, wn = HERO_NEAT.wingN;
+    const fUnder = tipF[1] > 0, nUnder = tipN[1] > 0;
+    const pts = {};
+    pts.wf0 = [P(wf[0]), P(wf[1]), P(tipF)];
+    pts.wf1 = [P(wf[1]), P(wf[2]), P(tipF)];
+    this._set(e.wingF[0], 'points', ptsStr(pts.wf0)); this._set(e.wingF[0], 'fill', col(fUnder ? 3 : 2, 0));
+    this._set(e.wingF[1], 'points', ptsStr(pts.wf1)); this._set(e.wingF[1], 'fill', col(3, 1));
+    HERO_NEAT.body.forEach((tri, i) => {
+      const p = tri.map(P);
+      pts['b' + i] = p;
+      this._set(e.body[i], 'points', ptsStr(p));
+      this._set(e.body[i], 'fill', col(HERO_TONES_BODY[i], i + 2));
+    });
+    pts.wn0 = [P(wn[0]), P(wn[1]), P(tipN)];
+    pts.wn1 = [P(wn[1]), P(wn[2]), P(tipN)];
+    this._set(e.wingN[0], 'points', ptsStr(pts.wn0)); this._set(e.wingN[0], 'fill', col(nUnder ? 2 : 0, 7));
+    this._set(e.wingN[1], 'points', ptsStr(pts.wn1)); this._set(e.wingN[1], 'fill', col(nUnder ? 3 : 1, 8));
+    this._set(e.cracks, 'opacity', (h.cracks || 0).toFixed(3));
+    if (h.cracks > 0.01) {
+      const mid = (a, b, k) => [lerp(a[0], b[0], k), lerp(a[1], b[1], k)];
+      const L1 = [pts.b1[0], mid(pts.b1[0], pts.b1[1], 0.45), [mid(pts.b1[0], pts.b1[1], 0.55)[0], -4], pts.b1[1]];
+      const L2 = [pts.wn0[1], mid(pts.wn0[1], pts.wn0[2], 0.4), [mid(pts.wn0[1], pts.wn0[2], 0.6)[0] + 5, mid(pts.wn0[1], pts.wn0[2], 0.6)[1]], pts.wn0[2]];
+      const L3 = [pts.b3[0], mid(pts.b3[0], pts.b3[1], 0.5), pts.b3[1]];
+      const L4 = [pts.b0[0], mid(pts.b0[0], pts.b0[1], 0.5), pts.b0[1]];
+      [L1, L2, L3, L4].forEach((L, i) => this._set(e.crackLines[i], 'points', ptsStr(L)));
+    }
+  },
+
+  /* ============================== MAKRO ============================== */
+  applyMacro(t, M) {
+    const e = this.el.m;
+    this._set(e.scene, 'opacity', M.opacity.toFixed(3));
+    if (M.opacity < 0.002) return null;
+    const s = M.camS, cy = M.camY;
+    this._set(e.cam, 'transform', `translate(540 960) scale(${s.toFixed(4)}) translate(-540 ${f1(-960 + cy)})`);
+    const lift = M.handsLift * -280;
+    this._set(e.lift, 'transform', `translate(0 ${f1(lift)})`);
+    e.bokeh.forEach((b, i) => {
+      const o = this.bokeh[i];
+      this._set(b, 'transform', `translate(${f1(Math.sin(t * 0.3 + o.p) * 22)} ${f1(Math.cos(t * 0.23 + o.p) * 16 - (t - 29) * 6)})`);
+    });
+
+    /* kanat geometrisi */
+    const wingPts = (pL, crumple, side, flap) => {
+      const S = MB.wingStraight, Cc = crumple;
+      const out = {};
+      const k = Ease.inOutCubic(clamp(pL, 0, 1));
+      for (const key of ['B1', 'B2', 'T1', 'T2', 'M']) {
+        let p = [lerp(Cc[key][0], S[key][0], k), lerp(Cc[key][1], S[key][1], k)];
+        if (key === 'T1' || key === 'T2' || key === 'M') {
+          const amt = key === 'M' ? 0.45 : 1;
+          p = [p[0] + flap[0] * amt, p[1] + flap[1] * amt];
+        }
+        out[key] = [p[0] * side, p[1]];
+      }
+      return out;
+    };
+    const ph = t * 15;
+    const fl = M.flap;
+    const flapV = [0, -Math.sin(ph) * 110 * fl - fl * 30];
+    const trem = M.tremble;
+    const tj = [Math.sin(t * 47) * 2.2 * trem, Math.cos(t * 53) * 2.2 * trem];
+    const wl = wingPts(M.wingL, MB.wingCrumpleL, 1, flapV);
+    const wr = wingPts(M.wingR, MB.wingCrumpleR, -1, flapV);
+    const bc = M.bodyC;
+    const B = MB.body, BC = MB.bodyCrumple;
+    const bp = (key) => [lerp(B[key][0], BC[key][0], bc), lerp(B[key][1], BC[key][1], bc)];
+    const top = bp('top'), right = bp('right'), bottom = bp('bottom'), left = bp('left'), center = bp('center');
+    const neckTip = [lerp(MB.neck[2][0], BC.neckTip[0], bc), lerp(MB.neck[2][1], BC.neckTip[1], bc)];
+    const hd = [
+      neckTip,
+      [lerp(MB.head[1][0], BC.headB[0], bc), lerp(MB.head[1][1], BC.headB[1], bc)],
+      [lerp(MB.head[2][0], BC.headC[0], bc), lerp(MB.head[2][1], BC.headC[1], bc)],
+    ];
+    const neck = [[MB.neck[0][0] * (1 - bc * 0.3), MB.neck[0][1] * (1 - bc * 0.3)], [MB.neck[1][0] * (1 - bc * 0.3), MB.neck[1][1] * (1 - bc * 0.3)], neckTip];
+    const tl = MB.tail[0].map((p) => [p[0], lerp(p[1], p[1] * 0.75, bc)]);
+    const tr = MB.tail[1].map((p) => [p[0], lerp(p[1], p[1] * 0.75, bc)]);
+    const J = this.macroJit;
+    const jit = (p, i, amt) => [p[0] + J[i][0] * amt + tj[0], p[1] + J[i][1] * amt + tj[1]];
+    const ig = M.ignite;
+
+    const wingFacets = (w) => [
+      [[w.B1, w.T1, w.M], 0], [[w.M, w.T1, w.T2], 1], [[w.B1, w.M, w.B2], 2], [[w.M, w.T2, w.B2], 3],
+    ];
+    const lift2 = M.lift;
+    const bx = 540 + Math.sin(t * 2.1) * 6 * lift2, byy = 1300 - lift2 * 1450;
+    const bs = 1 + lift2 * 0.35;
+    this._set(e.birdWrap, 'transform', `translate(${f1(bx)} ${f1(byy)}) rotate(${f1(-lift2 * 8 + Math.sin(t * 6) * 2 * fl)}) scale(${bs.toFixed(4)})`);
+    this._set(e.shadow, 'opacity', (0.45 * (1 - lift2)).toFixed(3));
+    wingFacets(wl).forEach(([pp, tone], i) => {
+      this._set(e.wingL[i], 'points', ptsStr(pp.map((p, k) => jit(p, i * 3 + k, 1 - M.wingL))));
+      this._set(e.wingL[i], 'fill', macroCol(tone, ig));
+    });
+    wingFacets(wr).forEach(([pp, tone], i) => {
+      this._set(e.wingR[i], 'points', ptsStr(pp.map((p, k) => jit(p, 12 + i * 3 + k, 1 - M.wingR))));
+      this._set(e.wingR[i], 'fill', macroCol(tone === 0 ? 1 : tone === 1 ? 0 : tone, ig));
+    });
+    const bodyF = [
+      [[top, left, center], 1], [[top, center, right], 0], [[left, bottom, center], 2], [[center, bottom, right], 1],
+      [neck, 1], [hd, 0], [tl, 2], [tr, 3],
+      [[[-10, -70 + bc * 20], [10, -70 + bc * 20], [0, -60]], 3],
+    ];
+    bodyF.forEach(([pp, tone], i) => {
+      this._set(e.body[i], 'points', ptsStr(pp.map((p, k) => jit(p, 24 + ((i * 3 + k) % 16), bc))));
+      this._set(e.body[i], 'fill', macroCol(tone, ig));
+    });
+    /* kırışık ve damar çizgileri */
+    const lines = [
+      [top, center, bottom],
+      [left, center, right],
+      [wl.B1, wl.M, wl.T2],
+      [wl.M, [lerp(wl.T1[0], wl.T2[0], 0.5), lerp(wl.T1[1], wl.T2[1], 0.5)]],
+      [wl.B2, wl.M],
+      [wr.B1, wr.M, wr.T2],
+      [wr.M, [lerp(wr.T1[0], wr.T2[0], 0.5), lerp(wr.T1[1], wr.T2[1], 0.5)]],
+      [wr.B2, wr.M],
+      [[0, -58], neckTip],
+      [[0, 96], [-8, 196]],
+    ];
+    lines.forEach((L, i) => {
+      const d = 'M' + L.map((p) => `${f1(p[0])} ${f1(p[1])}`).join(' L');
+      this._set(e.creases[i], 'd', d);
+      this._set(e.veins[i], 'd', d);
+      const v = clamp(M.veins * 1.4 - i * 0.04, 0, 1);
+      this._set(e.veins[i], 'stroke-dashoffset', (1 - v).toFixed(3));
+    });
+    this._set(e.veinsG, 'opacity', (M.veins > 0.001 ? 1 : 0).toString());
+
+    /* çimdikleyen parmaklar */
+    const wingTipWorld = (w, key) => [540 + w[key][0] * bs, 1300 + w[key][1] * bs];
+    const tL = wingTipWorld(wl, 'T1'), sL = wingTipWorld(wl, 'T2');
+    const tR = wingTipWorld(wr, 'T1'), sR = wingTipWorld(wr, 'T2');
+    this._drawPinch(e.idxL, e.thL, M.pinchL, tL, sL);
+    this._drawPinch(e.idxR, e.thR, M.pinchR, [1080 - tR[0], tR[1]], [1080 - sR[0], sR[1]]);
+
+    /* dudaklar ve nefes */
+    const pu = M.lips;
+    const lw = lerp(62, 28, pu), lh = lerp(10, 24, pu);
+    this._set(e.lips, 'd', `M${f1(540 - lw)} -170 Q540 ${f1(-170 - lh * 1.1)} ${f1(540 + lw)} -170 Q540 ${f1(-170 + lh * 1.5)} ${f1(540 - lw)} -170 Z`);
+    this._set(e.breath, 'opacity', M.breathGlow.toFixed(3));
+    this._set(e.breathCore, 'cy', f1(1300 - 280 * M.handsLift));
+    return [s, 0, 0, s, 540 - 540 * s, 960 + s * (-960 + cy)];
+  },
+
+  _drawPinch(idxEl, thEl, amt, target, target2) {
+    const restIdx = { sp: [[284, 1340], [276, 1272], [270, 1205], [268, 1150]], w: [50, 46, 42, 36] };
+    const restTh = { sp: [[234, 1600], [212, 1530], [214, 1466], [234, 1418]], w: [72, 62, 52, 44], nail: true, hl: -8, reach: 0.3 };
+    const k = Ease.inOutSine(clamp(amt, 0, 1));
+    const tk = `${(k * 1000) | 0}|${f1(target[0])}|${f1(target[1])}`;
+    if (idxEl.__tk === tk) return;
+    idxEl.__tk = tk;
+    /* parmak hedefe doğru kıvrılır; hedef yakınsa kanca gibi yukarı kavis yapar */
+    const bend = (rest, tgt) => {
+      const sp = rest.sp, b = sp[0];
+      const dx = tgt[0] - b[0], dy = tgt[1] - b[1], L = Math.hypot(dx, dy) || 1;
+      let px = -dy / L, py = dx / L;
+      if (py > 0) { px = -px; py = -py; }
+      const bulge = clamp(260 / L, 0.4, 2.2) * 34;
+      const out = [b];
+      for (let i = 1; i < sp.length; i++) {
+        const u = i / (sp.length - 1);
+        const q = [lerp(b[0], tgt[0], u) + px * Math.sin(u * Math.PI) * bulge, lerp(b[1], tgt[1], u) + py * Math.sin(u * Math.PI) * bulge];
+        const kk = k * (rest.reach === undefined ? 1 : rest.reach);
+        out.push([lerp(sp[i][0], q[0], kk), lerp(sp[i][1], q[1], kk)]);
+      }
+      return { sp: out, w: rest.w, nail: rest.nail, hl: rest.hl };
+    };
+    idxEl.innerHTML = this.fingerSVG(bend(restIdx, [target[0] + 4, target[1] + 6]));
+    thEl.innerHTML = this.fingerSVG(bend(restTh, [target2[0] - 18, target2[1] + 22]));
+  },
+};
+
+/* göz kırpma zarfı */
+function blinkAt(t, list) {
+  let v = 0;
+  for (const b of list) {
+    const d = t - b;
+    if (d < 0 || d > 0.17) continue;
+    v = Math.max(v, d < 0.07 ? d / 0.07 : 1 - (d - 0.07) / 0.1);
+  }
+  return v;
+}
+
+function crowdX(o, t) {
+  return wrap(o.x0 + o.facing * o.speed * worldClock(t), WRAP_LO, WRAP_HI);
+}
+
+/* ==========================================================================
+   Hikâye verisi: kalabalık yerleşimi, ağızdan fırlayan kuşlar, kahraman
+   kuşun saniye saniye yolu, göz kırpmaları ve sesle paylaşılan olay listesi.
+   ========================================================================== */
+'use strict';
+
+const MOUTH = [540, 1281];
+
+function buildStory(fx) {
+  const S = {};
+  const R = mulberry32(8080);
+
+  /* ---- kalabalık (6 ön + 6 arka, yarısı çark, yarısı ekran kafalı) ---- */
+  const F = (type, facing, x0, coat, phase) => ({ type, facing, x0, coat, phase, s: 1, feet: FRONT_FEET, speed: 105, stepRate: 0.933 });
+  const B = (type, facing, x0, coat, phase) => ({ type, facing, x0, coat, phase, s: 0.6, feet: BACK_FEET, speed: 64, stepRate: 0.933 });
+  S.crowdFront = [
+    F('screen', 1, 470 - 105 * 9.2, 'crowd-coat-a', 0.0),
+    F('gear', -1, 1180, 'crowd-coat-b', 1.3),
+    F('screen', -1, 150, 'crowd-coat-c', 2.1),
+    F('gear', 1, 780, 'crowd-coat-a', 0.7),
+    F('screen', 1, 1500, 'crowd-coat-b', 2.9),
+    F('gear', -1, -260, 'crowd-coat-c', 1.9),
+  ];
+  S.crowdBack = [
+    B('gear', 1, 40, 'crowd-coat-b', 0.4),
+    B('screen', -1, 420, 'crowd-coat-a', 1.6),
+    B('gear', -1, 980, 'crowd-coat-c', 2.4),
+    B('screen', 1, 760, 'crowd-coat-b', 0.9),
+    B('screen', -1, 1320, 'crowd-coat-c', 2.2),
+    B('screen', 1, -300, 'crowd-coat-a', 1.2),
+  ];
+
+  /* ---- ağızdan fırlayan kuşlar: 14., 15.2., 16.3., 17.2., 18.0., 18.7., 19.3., 19.9. ---- */
+  const launches = [14.0, 15.2, 16.3, 17.2, 18.0, 18.7, 19.3, 19.9];
+  const durs = [0.95, 0.9, 0.85, 0.8, 0.72, 0.66, 0.6, 0.55];
+  S.launches = launches.map((t, k) => ({ t, dir: k % 2 === 0 ? 1 : -1, dur: durs[k] }));
+  S.mouthBirds = [];
+  S.launches.forEach((L, k) => {
+    const tHit = L.t + L.dur;
+    let best = null, bestD = 1e9;
+    const consider = (o) => {
+      const x = crowdX(o, tHit);
+      if ((x - 540) * L.dir < 140 || Math.abs(x - 540) > 520) return;
+      const d = Math.abs(x - (540 + L.dir * 300)) + (o.s < 1 ? 120 : 0);
+      if (d < bestD) { bestD = d; best = { o, x }; }
+    };
+    S.crowdFront.forEach(consider);
+    if (!best) S.crowdBack.forEach(consider);
+    let tx, ty;
+    if (best) {
+      tx = best.x - Math.sign(best.x - 540) * 96 * best.o.s;
+      ty = best.o.feet - (690 + R() * 140) * best.o.s;
+    } else {
+      tx = 540 + L.dir * 330; ty = 900;
+    }
+    const mx = MOUTH[0] + L.dir * 11;
+    const b = fx.at(L.t).spawnMouthBird(mx, MOUTH[1], L.dir * 380, -700, tx, { targetY: ty, dur: L.dur, size: 0.95 });
+    S.mouthBirds.push(b);
+  });
+
+  /* ---- 13.4: kül yağmuru — 176 gri kuş (toplam 184 ölü kuş) ---- */
+  fx.at(13.4).populateFloorGraveyard(176);
+  fx.finalize();
+  /* ---- 33.6: sıcak nefes (makro uzay: dudaklar) ---- */
+  fx.at(33.6).emitWarmBreath(540, -150, 3.3);
+  fx.at(34.6).macroBurst(540, 1020, 70);
+  /* ---- 37.5: zincirleme alevlenme ---- */
+  fx.at(37.5).igniteFloorWave(540, 1520);
+
+  S.rainBirds = fx.birds.filter((b) => b.kind === 'rain');
+  S.flock = fx.birds.filter((b) => b.tLift !== undefined).map((b) => ({ t: b.tLift, x: b.xLand })).sort((a, b) => a.t - b.t);
+
+  /* ---- göz kırpmaları ---- */
+  S.blinksP = [1.3, 3.6, 7.6, 11.2, 12.15, 15.9, 21.9, 23.6, 40.2, 42.4, 46.9];
+  S.blinksL = [2.7, 8.4, 14.6, 19.8, 24.2, 26.05, 39.3, 41.9, 47.4];
+
+  /* ---- kayan kuşun yuvarlanma tıkırtıları ---- */
+  S.slideTicks = [];
+  for (let tt = 23.55; tt < 26.75; tt += 0.42) S.slideTicks.push([tt, heroSlideX(tt)]);
+  return S;
+}
+
+/* ---------------- kahraman kuşun saniye saniye yolu ---------------- */
+const HERO_REST = [470, 1682];
+const HERO_BOOT = [772, 1662];
+const SLIDE_KEYS = [[23.0, 0, 0], [23.6, 0.05, 0], [24.4, 0.3, 0], [25.3, 0.63, 0], [26.1, 0.89, 0], [26.8, 1.0, 0]];
+function heroSlideX(t) {
+  const p = clamp(pathAt(SLIDE_KEYS, t)[0], 0, 1);
+  return lerp(HERO_REST[0], HERO_BOOT[0], p);
+}
+const REVIVE_KEYS = [
+  [36.95, 872, 1290], [37.22, 760, 1438], [37.5, 560, 1500], [37.85, 345, 1468],
+  [38.3, 248, 1262], [38.9, 372, 980], [39.6, 596, 700], [40.3, 520, 380], [41.0, 410, 40],
+];
+const FRONTPASS_KEYS = [[47.0, -280, 1660], [47.6, 290, 1260], [48.2, 820, 830], [48.8, 1420, 420]];
+
+function heroPose(t, camM) {
+  const H = { vis: false, x: 0, y: 0, s: 0.7, rot: 0, flip: 1, c: 0, g: 0, au: 0, glow: 0, phase: 0, amp: 1, cracks: 0, alive: 0, gold: false };
+  if (t < 5.8) return H;
+  H.vis = true;
+  if (t < 9.2) {
+    const u = (t - 5.8) / 3.4;
+    const e = Math.pow(u, 1.12);
+    const P0 = [MOUTH[0] - 4, MOUTH[1]], P1 = [700, 1090], P2 = [600, 690], P3 = [342, 805];
+    const p = bez3(P0, P1, P2, P3, e), q = bez3(P0, P1, P2, P3, Math.min(1, e + 0.015));
+    H.x = p[0]; H.y = p[1];
+    H.flip = q[0] >= p[0] ? 1 : -1;
+    H.rot = clamp(Math.atan2(q[1] - p[1], Math.abs(q[0] - p[0]) + 1e-3), -0.8, 0.8);
+    H.s = 0.2 + 0.72 * smooth(Math.min(1, (t - 5.8) / 0.55));
+    H.glow = 1; H.alive = 1; H.amp = 1;
+    H.phase = (t - 5.8) * (u < 0.2 ? 22 : 15);
+    return H;
+  }
+  if (t < 9.32) {
+    const k = smooth((t - 9.2) / 0.12);
+    H.x = 342 + 16 * k; H.y = 805 - 6 * k; H.flip = -1; H.rot = 0.3 * k;
+    H.s = 0.92 + 0.3 * k; H.c = k; H.g = k; H.glow = 1 - k; H.alive = 1 - k; H.amp = 1 - k; H.phase = 52 + (t - 9.2) * 40;
+    return H;
+  }
+  if (t < 10.55) {
+    const v = (t - 9.32) / 1.23;
+    H.x = lerp(358, HERO_REST[0], Ease.out(v)) + Math.sin(v * 9) * 16 * (1 - v);
+    H.y = 799 + (HERO_REST[1] - 799) * (0.2 * v + 0.8 * v * v) - 30 * Math.sin(Math.min(1, v * 3) * Math.PI) * (1 - v);
+    H.rot = 0.3 + v * 2.6 + Math.sin(v * 7) * 0.3; H.flip = -1;
+    H.s = 1.22; H.c = 1; H.g = 1; H.amp = 0;
+    return H;
+  }
+  if (t < 23.0) {
+    const d = t - 10.55;
+    H.x = HERO_REST[0]; H.y = HERO_REST[1] - 6 * Math.sin(Math.PI * Math.min(1, d / 0.18)) * (d < 0.18 ? 1 : 0);
+    H.rot = 2.9 + 0.02 * Math.sin(t * 2.7); H.flip = -1;
+    H.s = 1.22; H.c = 1; H.g = 1; H.amp = 0;
+    return H;
+  }
+  if (t < 26.8) {
+    H.x = heroSlideX(t);
+    const dist = H.x - HERO_REST[0];
+    H.rot = 2.9 + dist / 26;
+    H.y = HERO_REST[1] - Math.abs(Math.sin(dist / 26 * 2)) * 6 - (HERO_REST[1] - HERO_BOOT[1]) * clamp(dist / (HERO_BOOT[0] - HERO_REST[0]), 0, 1);
+    H.flip = -1; H.s = 1.22; H.c = 1; H.g = 1; H.amp = 0;
+    return H;
+  }
+  if (t < 28.85) {
+    H.x = HERO_BOOT[0]; H.y = HERO_BOOT[1]; H.rot = 2.9 + (HERO_BOOT[0] - HERO_REST[0]) / 26; H.flip = -1;
+    H.s = 1.22; H.c = 1; H.g = 1; H.amp = 0;
+    return H;
+  }
+  if (t < 36.95) { H.vis = false; return H; }
+  if (t < 41.0) {
+    const p = pathAt(REVIVE_KEYS, t), q = pathAt(REVIVE_KEYS, t + 0.02);
+    H.x = p[0]; H.y = p[1];
+    H.flip = q[0] >= p[0] ? 1 : -1;
+    H.rot = clamp(Math.atan2(q[1] - p[1], Math.abs(q[0] - p[0]) + 1e-3), -0.9, 0.9) * 0.8;
+    H.s = 0.8 + 0.16 * smooth(inv(36.95, 37.4, t));
+    H.au = 0.5; H.glow = 1; H.alive = 1; H.gold = true; H.cracks = 1; H.amp = 1;
+    H.phase = (t - 36.95) * 17;
+    H.alpha = 1 - inv(40.7, 41.0, t);
+    return H;
+  }
+  if (t < 47.0) { H.vis = false; return H; }
+  if (t < 48.8 && camM) {
+    const p = pathAt(FRONTPASS_KEYS, t), q = pathAt(FRONTPASS_KEYS, t + 0.02);
+    const IM = invMatrix(camM);
+    const w = applyMatrix(IM, p[0], p[1]);
+    const camS = Math.hypot(camM[0], camM[1]);
+    const rotCam = Math.atan2(camM[1], camM[0]);
+    H.x = w[0]; H.y = w[1];
+    H.s = (3.4 + 1.2 * inv(47, 48.8, t)) / camS;
+    H.flip = 1;
+    H.rot = Math.atan2(q[1] - p[1], q[0] - p[0]) * 0.7 - rotCam;
+    H.au = 0.55; H.glow = 1; H.alive = 1; H.gold = true; H.cracks = 1; H.amp = 1;
+    H.phase = (t - 47) * 9;
+    return H;
+  }
+  H.vis = false;
+  return H;
+}
+
+/* ==========================================================================
+   buildMasterTimeline() — 50.0 sn GSAP master timeline
+   Kamera, oyunculuk (mimik/jest), ışık ve renk senaryosu.
+   ========================================================================== */
+'use strict';
+
+function makeState() {
+  return {
+    cam: { cx: 540, cy: 1000, s: 1.0, r: -2.5, pulse: 1 },
+    P: {
+      inhale: 0, armR: 6, turn: 0, lean: 0, headTilt: 0, headDown: 0, browUp: 0, browSad: 0.25, browFrown: 0,
+      lid: 0.08, lookX: 0, lookY: -0.55, mouthOpen: 0, smile: -0.08, cold: 0.12, warm: 0, slump: 0, sink: 0,
+      sparkle: 0, tearT: 0, tearA: 0, flinch: 0,
+    },
+    L: { lean: 0, headDown: 0.3, lid: 0.55, smile: 0.12, armReach: 0, armUp: 0, shadow: 0.74, halo: 0.2, haloScale: 1, lookX: -0.6 },
+    M: { opacity: 0, camS: 1.05, camY: -150, wingL: 0, wingR: 0, bodyC: 1, pinchL: 0, pinchR: 0, handsLift: 0, lips: 0, breathGlow: 0, veins: 0, ignite: 0, flap: 0, tremble: 0, lift: 0 },
+    E: { warm: 0, beams: 1, ceiling: 1, sun: 0, melt: 0, off: { b1: 0, b3: 0, b4: 0, b5: 0, f4: 0 }, look: { b1: 0, b3: 0, b4: 0, b5: 0, f4: 0, b0: 0, b2: 0 } },
+  };
+}
+
+function buildMasterTimeline(S, st) {
+  const { cam, P, L, M, E } = st;
+  const tl = gsap.timeline({ paused: true, defaults: { ease: 'sine.inOut', lazy: false, overwrite: false } });
+  const to = (obj, vars, at) => tl.to(obj, vars, at);
+
+  /* ======================= KAMERA (#camera-rig) ======================= */
+  to(cam, { cx: 545, cy: 1150, s: 1.12, duration: 4.5 }, 0);                          // Push-In, Dutch -2.5°
+  to(cam, { cx: 520, cy: 1110, s: 1.18, duration: 4.7 }, 4.5);
+  to(cam, { cx: 500, cy: 1230, s: 1.2, duration: 1.5, ease: 'power2.inOut' }, 9.2);  // düşüşü izleyen mikro dikey takip
+  to(cam, { cy: 1210, s: 1.21, duration: 2.3 }, 10.7);
+  to(cam, { cx: 540, cy: 1060, s: 0.96, r: -4, duration: 7.5 }, 13.0);                // Dolly-Out + Dutch -4°
+  to(cam, { cy: 1180, s: 1.02, r: -4.2, duration: 4.5 }, 20.5);                       // yere Crane Down
+  to(cam, { cx: 790, cy: 1420, s: 1.42, r: -2.0, duration: 2.0, ease: 'power2.inOut' }, 25.0); // Match-Cut Glide Pan
+  to(cam, { cx: 816, cy: 1440, s: 1.62, r: 0, duration: 1.8 }, 27.0);                 // Dutch → 0°
+  tl.set(cam, { cx: 800, cy: 1330, s: 1.22, r: 0 }, 36.7);
+  to(cam, { cx: 470, cy: 1360, s: 1.2, duration: 0.95, ease: 'power2.inOut' }, 37.0);  // Swoop Pan
+  to(cam, { pulse: 1.03, duration: 0.22, ease: 'power2.out' }, 37.5);                  // Screen Pulse
+  to(cam, { pulse: 0.98, duration: 0.45, ease: 'sine.inOut' }, 37.72);
+  to(cam, { pulse: 1.0, duration: 0.6, ease: 'sine.out' }, 38.17);
+  to(cam, { cx: 540, cy: 940, s: 0.92, duration: 3.6 }, 37.95);
+  to(cam, { cy: 900, s: 0.9, duration: 1.45 }, 41.55);
+  to(cam, { cx: 722, cy: 1292, s: 1.62, duration: 0.95, ease: 'power2.inOut' }, 43.0); // iki kişilik plan
+  to(cam, { s: 1.68, duration: 0.65 }, 43.95);
+  to(cam, { cx: 548, cy: 1262, s: 2.75, duration: 0.85, ease: 'power2.inOut' }, 44.6); // yüze sıcak orta-yakın
+  to(cam, { s: 2.95, cy: 1268, duration: 1.55 }, 45.45);
+  to(cam, { cx: 540, cy: -420, s: 1.0, duration: 1.8, ease: 'power2.inOut' }, 47.0);   // Epik Crane Up
+  to(cam, { cy: -520, duration: 1.2, ease: 'sine.out' }, 48.8);
+
+  /* ====================== KAHRAMAN: OYUNCULUK ====================== */
+  /* 0–4.5: kalabalığa bakan, tedirgin küçük göz */
+  to(P, { lookX: -0.55, duration: 0.5 }, 1.2);
+  to(P, { lookX: 0.45, duration: 0.6 }, 2.7);
+  to(P, { headDown: 0.08, duration: 0.35 }, 1.7);
+  to(P, { headDown: 0, duration: 0.5 }, 2.1);
+  to(P, { lookX: -0.1, lookY: -0.45, duration: 0.6 }, 3.8);
+  /* 4.5–5.8: derin nefes, umut, el uzanır, ağız açılır */
+  to(P, { inhale: 1, browUp: 1, browSad: 0, lid: -0.08, duration: 1.0, ease: 'power2.out' }, 4.5);
+  to(P, { armR: 128, duration: 1.15, ease: 'back.out(1.4)' }, 4.75);
+  to(P, { lookX: -0.35, lookY: -0.85, turn: -0.2, duration: 0.8 }, 4.8);
+  to(P, { mouthOpen: 0.9, duration: 0.3, ease: 'power2.out' }, 5.45);
+  to(P, { mouthOpen: 0.2, smile: 0.35, inhale: 0.35, duration: 0.8 }, 5.85);
+  /* 5.8–9.2: umutla kuşu izler */
+  to(P, { lookX: -0.75, lookY: -0.7, turn: -0.3, smile: 0.5, duration: 2.6 }, 6.6);
+  /* 9.2: çarpma — kaşlar içten kırılır, el havada 0.65 sn donar */
+  to(P, { flinch: 1, duration: 0.08, ease: 'power3.out' }, 9.2);
+  to(P, { flinch: 0, duration: 0.45, ease: 'power2.out' }, 9.28);
+  to(P, { smile: -0.25, mouthOpen: 0.12, browSad: 1, browUp: 0.35, lid: 0.15, duration: 0.35, ease: 'power2.out' }, 9.25);
+  to(P, { armR: 128, duration: 0.65, ease: 'none' }, 9.2);                              // key-pose hold
+  to(P, { armR: 4, duration: 0.62, ease: 'power3.in' }, 9.85);                          // ağırlaşarak düşer
+  to(P, { armR: 11, duration: 0.14, ease: 'power1.out' }, 10.47);
+  to(P, { armR: 6, duration: 0.25, ease: 'sine.inOut' }, 10.61);
+  to(P, { lookY: 0.95, lookX: -0.3, duration: 1.2, ease: 'power2.in' }, 9.35);
+  to(P, { headDown: 0.3, lid: 0.32, smile: -0.4, mouthOpen: 0, inhale: 0, turn: 0, duration: 1.4 }, 10.6);
+  /* 12.3–13: cesaret toplar */
+  to(P, { headDown: 0, browFrown: 0.45, inhale: 0.75, lookY: -0.4, lid: 0.0, duration: 0.7 }, 12.3);
+  /* 13–20.5: sağa sola panikle konuşur */
+  S.launches.forEach((Ln, k) => {
+    const d = Ln.dir, t = Ln.t;
+    const pre = Math.min(0.4, k === 0 ? 0.4 : (t - S.launches[k - 1].t) * 0.45);
+    to(P, { turn: d * 0.8, lean: d * 3.2, lookX: d * 0.95, lookY: -0.55, duration: pre * 0.8, ease: 'power2.out' }, t - pre);
+    to(P, { mouthOpen: 0.95, armR: d < 0 ? 96 : 52, inhale: 0.4, duration: 0.17, ease: 'power2.out' }, t - 0.17);
+    to(P, { mouthOpen: 0.28, duration: 0.25 }, t + 0.06);
+    to(P, { flinch: 0.55, duration: 0.06 }, t + Ln.dur);
+    to(P, { flinch: 0, duration: 0.3 }, t + Ln.dur + 0.06);
+  });
+  to(P, { browSad: 0.85, browFrown: 0.65, browUp: 0.2, duration: 6.5 }, 13.5);
+  to(P, { cold: 0.38, duration: 7.5 }, 13.0);
+  /* 20.5–25: pes ediş */
+  to(P, { mouthOpen: 0, smile: -0.5, duration: 0.45 }, 20.6);
+  to(P, { headDown: 1, turn: 0, lean: 0, lookX: 0.1, lookY: 0.95, duration: 1.4, ease: 'power2.inOut' }, 20.8);
+  to(P, { slump: 1, sink: 1, armR: 2, duration: 2.0, ease: 'power2.inOut' }, 21.0);
+  to(P, { lid: 0.62, browSad: 1, browFrown: 0, browUp: 0, duration: 1.5 }, 21.0);
+  to(P, { cold: 0.8, duration: 4.0 }, 20.5);
+  /* 37.5–43.5: sıcak ışık ve hayranlık */
+  to(P, { warm: 0.75, duration: 2.0 }, 37.5);
+  to(P, { cold: 0.45, duration: 2.4 }, 37.6);
+  to(P, { headDown: 0.55, lid: 0.25, lookY: -0.75, browUp: 0.5, browSad: 0.4, mouthOpen: 0.15, sparkle: 0.35, duration: 2.5 }, 39.0);
+  /* 43.5–47: göz göze, gözyaşı, gülümseme */
+  to(P, { headDown: 0, slump: 0.25, sink: 0.3, cold: 0, turn: 0.55, lookX: 0.95, lookY: -0.05, lid: 0.04, browUp: 0.6, browSad: 0.55, mouthOpen: 0.05, duration: 1.1, ease: 'power2.inOut' }, 43.5);
+  to(P, { sparkle: 1, duration: 0.6 }, 44.0);
+  to(P, { tearA: 1, duration: 0.2 }, 44.8);
+  to(P, { tearT: 1, duration: 1.8, ease: 'power1.in' }, 44.8);
+  to(P, { smile: 1, mouthOpen: 0.14, lid: 0.1, browSad: 0.5, browUp: 0.45, lookX: 0.6, duration: 1.0, ease: 'power2.inOut' }, 45.2);
+  to(P, { tearA: 0.65, duration: 0.6 }, 46.6);
+
+  /* ====================== DİNLEYEN YABANCI ====================== */
+  to(L, { lid: 0.42, headDown: 0.18, duration: 1.2 }, 6.2);
+  to(L, { lid: 0.5, headDown: 0.3, duration: 1.5 }, 10.5);
+  to(L, { headDown: 0.22, lid: 0.4, duration: 2 }, 21.5);
+  to(L, { shadow: 0.22, halo: 0.38, headDown: 0.48, lid: 0.32, duration: 1.8 }, 25.0);
+  to(L, { halo: 0.56, haloScale: 1.14, duration: 0.9 }, 27.0);                         // nefes gibi genişleyen hale
+  to(L, { halo: 0.46, haloScale: 1.06, duration: 0.9 }, 27.9);
+  to(L, { lean: 14, headDown: 0.78, duration: 1.6 }, 27.2);                             // acele etmeden eğilir
+  to(L, { armReach: 1, duration: 1.2 }, 27.6);
+  tl.set(L, { lean: 6, armReach: 0, armUp: 0.9, headDown: 0.3 }, 31.0);
+  to(L, { armUp: 1, duration: 0.4 }, 36.6);
+  to(L, { shadow: 0, halo: 0.62, headDown: -0.15, lid: 0.22, smile: 0.4, lookX: -0.2, lean: 2, duration: 2.2 }, 37.2);
+  to(L, { armUp: 0.15, duration: 1.0 }, 43.0);
+  to(L, { headDown: 0.06, lookX: -0.9, duration: 0.6 }, 43.5);
+  to(L, { smile: 1, lid: 0.5, duration: 0.8 }, 44.0);
+
+  /* ====================== MAKRO EL SAHNESİ ====================== */
+  to(M, { opacity: 1, duration: 0.5, ease: 'power1.inOut' }, 28.8);
+  to(M, { camS: 1.15, duration: 4.7, ease: 'none' }, 28.8);                              // hipnotik yaklaşma
+  /* 29.4 sol kanat */
+  to(M, { pinchL: 1, duration: 0.45 }, 29.0);
+  to(M, { wingL: 1, bodyC: 0.55, duration: 0.95, ease: 'power2.inOut' }, 29.4);
+  to(M, { pinchL: 0, duration: 0.55 }, 30.4);
+  /* 31.2 sağ kanat */
+  to(M, { pinchR: 1, duration: 0.45 }, 30.8);
+  to(M, { wingR: 1, bodyC: 0, duration: 0.95, ease: 'power2.inOut' }, 31.2);
+  to(M, { pinchR: 0, duration: 0.55 }, 32.2);
+  /* 33.5 sıcak nefes */
+  to(M, { handsLift: 1, camY: 360, camS: 1.12, duration: 0.9, ease: 'sine.inOut' }, 33.5);
+  to(M, { lips: 1, duration: 0.3 }, 33.55);
+  to(M, { breathGlow: 1, duration: 0.7 }, 33.7);
+  to(M, { veins: 1, duration: 1.0, ease: 'power2.out' }, 34.6);                         // Kintsugi
+  to(M, { ignite: 1, duration: 0.85 }, 34.6);
+  to(M, { lips: 0.25, breathGlow: 0.55, duration: 0.7 }, 35.1);
+  to(M, { tremble: 1, duration: 0.25 }, 35.8);
+  to(M, { flap: 1, duration: 0.5 }, 35.95);
+  to(M, { lift: 1, duration: 1.0, ease: 'power2.in' }, 36.0);
+  to(M, { opacity: 0, duration: 0.55, ease: 'power1.inOut' }, 36.5);
+
+  /* ====================== IŞIK & RENK SENARYOSU ====================== */
+  to(E, { beams: 0.55, duration: 0.35 }, 27.0);
+  to(E, { warm: 1, duration: 3.2 }, 37.6);
+  to(E, { beams: 0, duration: 2.2 }, 37.6);
+  to(E, { ceiling: 0, duration: 3.0 }, 38.0);
+  to(E, { sun: 1, duration: 3.5 }, 38.2);
+  to(E, { melt: 1, duration: 2.6, ease: 'power1.in' }, 37.7);
+  tl.to('#bg-stop-1', { stopColor: '#1E1B32', duration: 3.6 }, 37.6);
+  tl.to('#bg-stop-2', { stopColor: '#D97742', duration: 3.6 }, 37.6);
+  tl.to('#bg-stop-3', { stopColor: '#FFF0C9', duration: 3.6 }, 37.6);
+  tl.to('#warm-god-rays', { opacity: 0.72, duration: 2.8 }, 37.7);
+  /* arka plandaki ekran kafalılar: ışıkları sönüp başlarını kaldırırlar */
+  [['b1', 43.75], ['b4', 44.05], ['f4', 44.3], ['b5', 44.55], ['b3', 44.8]].forEach(([k, at]) => {
+    to(E.off, { [k]: 1, duration: 0.5, ease: 'none' }, at);
+    to(E.look, { [k]: 1, duration: 1.3, ease: 'power2.inOut' }, at + 0.35);
+  });
+  to(E.look, { b0: 1, b2: 1, duration: 1.4 }, 44.6);
+
+  /* ====================== FİNAL KARARMA ====================== */
+  tl.to('#fade-black', { opacity: 1, duration: 1.2, ease: 'sine.inOut' }, 48.8);
+  tl.set({}, {}, DURATION);
+  return tl;
+}
+
+/* ==========================================================================
+   Uygulama: perde, kontrol çubuğu, scrubber, H tuşu, A/V senkron döngüsü
+   ve temiz kayıt için ?capture modu.
+   ========================================================================== */
+'use strict';
+
+(function () {
+  const CAPTURE = /[?&]capture\b/.test(location.search);
+  if (CAPTURE) document.body.classList.add('capture');
+
+  const fx = new OrigamiFXEngine(document.getElementById('fx-canvas'));
+  let story = buildStory(fx);
+  Rig.build(story);
+  let state = makeState();
+  let masterTimeline = buildMasterTimeline(story, state);
+  const sound = new SoundEngine();
+
+  /* ---------------------------- tek kare ---------------------------- */
+  function renderFrame(t) {
+    t = clamp(t, 0, DURATION);
+    masterTimeline.time(t, false);
+    const { cam, P, L, M, E } = state;
+    const camM = Rig.applyCamera(cam, t);
+    Rig.applyCrowd(t, E);
+    Rig.applyEnv(t, E, fx.pileFraction(t));
+    Rig.applyProtagonist(t, P);
+    Rig.applyListener(t, L);
+    Rig.applyHero(heroPose(t, camM));
+    const macroM = Rig.applyMacro(t, M);
+    fx.render(t, {
+      cam: camM,
+      worldAlpha: 1 - M.opacity,
+      macro: macroM,
+      macroAlpha: M.opacity,
+      warm: E.warm,
+      hero: (tt) => {
+        const h = heroPose(tt, camM);
+        return h.vis ? { x: h.x, y: h.y, s: h.s, alive: h.alive, gold: h.gold } : null;
+      },
+    });
+    grain(t);
+  }
+
+  const grainEl = document.getElementById('grain-overlay');
+  function grain(t) {
+    const f = Math.floor(t * 24);
+    const r = mulberry32(f * 7919 + 13);
+    grainEl.style.transform = `translate(${((r() - 0.5) * 3).toFixed(2)}%, ${((r() - 0.5) * 3).toFixed(2)}%)`;
+  }
+
+  /* ---------------------- ses: çevrimdışı partisyon ---------------------- */
+  const audioReady = sound.renderScore(story).catch((e) => { console.warn('Ses üretilemedi:', e); return null; });
+
+  if (CAPTURE) {
+    window.KK = {
+      ready: audioReady.then(() => true),
+      renderFrame: (t) => { renderFrame(t); return true; },
+      preroll: (t) => { for (let x = 0; x <= t; x += 0.05) masterTimeline.time(x, false); renderFrame(t); return true; },
+      duration: () => masterTimeline.duration(),
+      wav: () => sound.wavBase64(),
+    };
+    renderFrame(0);
+    return;
+  }
+
+  /* ============================ ARAYÜZ ============================ */
+  const curtain = document.getElementById('curtain');
+  const playBtn = document.getElementById('btn-play');
+  const replayBtn = document.getElementById('btn-replay');
+  const timeEl = document.getElementById('time');
+  const scrub = document.getElementById('scrubber');
+  const startBtn = document.getElementById('curtain-play');
+  let playing = false, t = 0, perfStart = 0, perfOffset = 0, scrubbing = false;
+
+  const fmt = (x) => {
+    const s = Math.floor(x + 1e-6);
+    return `00:${String(Math.min(50, s)).padStart(2, '0')}`;
+  };
+  function ui() {
+    timeEl.textContent = `${fmt(t)} / 00:50`;
+    if (!scrubbing) scrub.value = t.toFixed(2);
+    scrub.style.setProperty('--p', `${(t / DURATION) * 100}%`);
+    playBtn.dataset.state = playing ? 'pause' : 'play';
+    playBtn.setAttribute('aria-label', playing ? 'Duraklat' : 'Oynat');
+  }
+
+  function clock() {
+    const a = sound.currentTime();
+    if (a !== null) return a;
+    return perfOffset + (performance.now() - perfStart) / 1000;
+  }
+
+  function play(from) {
+    t = clamp(from, 0, DURATION);
+    if (t >= DURATION - 0.01) t = 0;
+    sound.ensureLive();
+    sound.play(t);
+    perfStart = performance.now();
+    perfOffset = t;
+    playing = true;
+    ui();
+  }
+  function pause() {
+    t = clock();
+    sound.stopAll();
+    playing = false;
+    ui();
+  }
+  function replay() {
+    sound.stopAll();
+    fx.reset();
+    story = buildStory(fx);
+    Rig.story = story;
+    state = makeState();
+    masterTimeline.kill();
+    gsap.set(['#bg-stop-1', '#bg-stop-2', '#bg-stop-3', '#warm-god-rays', '#fade-black'], { clearProps: 'all' });
+    masterTimeline = buildMasterTimeline(story, state);
+    renderFrame(0);
+    play(0);
+  }
+
+  function loop() {
+    if (playing) {
+      t = clock();
+      if (t >= DURATION) { t = DURATION; renderFrame(t); sound.stopAll(); playing = false; ui(); }
+      else renderFrame(t);
+      ui();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  startBtn.disabled = true;
+  audioReady.then(() => { startBtn.disabled = false; curtain.classList.add('ready'); });
+  startBtn.addEventListener('click', () => {
+    curtain.classList.add('gone');
+    setTimeout(() => { curtain.style.display = 'none'; }, 420);
+    play(0);
+  });
+  playBtn.addEventListener('click', () => (playing ? pause() : play(t)));
+  replayBtn.addEventListener('click', replay);
+  scrub.addEventListener('input', () => {
+    scrubbing = true;
+    t = parseFloat(scrub.value);
+    if (playing) { sound.stopAll(); }
+    renderFrame(t);
+    ui();
+  });
+  scrub.addEventListener('change', () => {
+    scrubbing = false;
+    if (playing) play(t);
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'h' || e.key === 'H') document.body.classList.toggle('clean');
+    else if (e.code === 'Space' && curtain.style.display === 'none') { e.preventDefault(); playing ? pause() : play(t); }
+  });
+
+  renderFrame(0);
+  ui();
+  requestAnimationFrame(loop);
+})();
+
+</script>
+</body>
+</html>

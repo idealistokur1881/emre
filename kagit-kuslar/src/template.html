@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Yerdeki Kağıt Kuşlar</title>
+<meta name="description" content="50 saniyelik sözsüz animasyon — duyulmak ve gerçekten dinlenmek üzerine. SVG + Canvas fizik + GSAP 3 + Web Audio.">
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<div id="stage-container">
+/*__SVG__*/
+  <canvas id="fx-canvas" width="1080" height="1920"></canvas>
+  <div id="grain-overlay" aria-hidden="true">
+    <svg viewBox="0 0 1080 1920" preserveAspectRatio="none"><rect width="1080" height="1920" filter="url(#paper-grain)"/></svg>
+  </div>
+  <div id="fade-black"></div>
+
+  <div id="curtain">
+    <button id="curtain-play" aria-label="Oynat">
+      <svg viewBox="0 0 150 150" aria-hidden="true">
+        <circle class="ring" cx="75" cy="75" r="70"/>
+        <g class="bird">
+          <polygon points="60,72 38,52 52,78" fill="#FF8A3D"/>
+          <polygon points="50,72 75,64 100,72" fill="#FFB347"/>
+          <polygon points="50,72 100,72 75,82" fill="#E2552A"/>
+          <polygon points="88,70 108,46 96,74" fill="#FF9A4A"/>
+          <polygon points="108,46 118,49 104,53" fill="#FFC56B"/>
+          <polygon points="66,68 78,68 70,28" fill="#FFC062"/>
+          <polygon points="70,69 84,69 76,22" fill="#FF6B2B"/>
+        </g>
+        <polygon class="tri" points="68,96 68,124 92,110"/>
+      </svg>
+    </button>
+  </div>
+
+  <div id="controls">
+    <button id="btn-play" data-state="play" aria-label="Oynat">
+      <svg class="i-play" viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z"/></svg>
+      <svg class="i-pause" viewBox="0 0 16 16"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/></svg>
+    </button>
+    <button id="btn-replay" aria-label="Başa sar">
+      <svg viewBox="0 0 16 16"><path d="M8 2.5a5.5 5.5 0 1 1-5.2 7.3l1.4-.5A4 4 0 1 0 8 4v2L4.8 3.3 8 .5z"/></svg>
+    </button>
+    <span id="time">00:00 / 00:50</span>
+    <input id="scrubber" type="range" min="0" max="50" step="0.01" value="0" aria-label="Zaman çubuğu">
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>

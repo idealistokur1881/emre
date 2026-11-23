@@ -1,0 +1,4 @@
+preview/
+node_modules/
+.render-*/
+*.tmp.mp4
