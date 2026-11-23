@@ -7,7 +7,8 @@
 | Dosya | Ne işe yarar |
 |---|---|
 | `yerdeki-kagit-kuslar.html` | Tek dosyalık interaktif animasyon. Tarayıcıda aç, perdedeki ▶'e bas. |
-| `../video/yerdeki-kagit-kuslar-1080p.mp4` | Instagram'a yüklenecek sesli video (1080×1920, H.264 + AAC). |
+| `../video/yerdeki-kagit-kuslar-1080p.mp4` | Instagram'a yüklenecek sesli video (1080×1920, 60 fps, H.264 + AAC, −14.8 LUFS). |
+| `kapak.jpg` | Reels kapak karesi (41. sn, yükselen kuş sürüsü). |
 | `src/` | Düzenlenebilir kaynak: `scene.svg`, `style.css`, `js/*.js`. |
 | `build.py` | `src/` parçalarını tek HTML'de birleştirir. |
 | `render.mjs` | Playwright + ffmpeg ile kare kare video ve ses render'ı. |
@@ -35,7 +36,7 @@ python3 build.py                                    # src → yerdeki-kagit-kusl
 npm i gsap@3.12.5                                   # render için yerel GSAP (veya GSAP_PATH=...)
 node render.mjs frames 5.8,27,37.5,44.8             # anahtar kareler → preview/
 node render.mjs audio --out ses.wav                 # yalnızca ses
-node render.mjs video --fps 30 --workers 4 --out ../video/yerdeki-kagit-kuslar-1080p.mp4
+node render.mjs video --fps 60 --workers 4 --out ../video/yerdeki-kagit-kuslar-1080p.mp4
 ```
 
 ## Paylaşım notu
